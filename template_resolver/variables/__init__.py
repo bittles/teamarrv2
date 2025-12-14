@@ -28,27 +28,23 @@ from template_resolver.registry import SuffixRules, get_registry
 
 # Import all variable modules to trigger registration (noqa: F401 for side-effect imports)
 from template_resolver.variables import (  # noqa: F401
+    broadcast,
+    conference,
     datetime,
+    h2h,
     home_away,
     identity,
+    odds,
+    outcome,
+    playoffs,
+    rankings,
     records,
+    scores,
+    soccer,
+    standings,
+    statistics,
+    streaks,
     venue,
 )
 
 __all__ = ["SuffixRules", "get_registry"]
-
-# TODO: Add remaining modules as they're created
-# from template_resolver.variables import (
-#     streaks,
-#     h2h,
-#     scores,
-#     outcome,
-#     standings,
-#     statistics,
-#     playoffs,
-#     odds,
-#     broadcast,
-#     rankings,
-#     conference,
-#     soccer,
-# )
