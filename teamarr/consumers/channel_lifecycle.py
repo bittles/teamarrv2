@@ -479,126 +479,123 @@ class ChannelLifecycleService:
         )
 
         result = StreamProcessResult()
-        conn = self._db_factory()
 
         try:
-            # Get group settings
-            group_id = group_config.get("id")
-            duplicate_mode = group_config.get("duplicate_event_handling", "consolidate")
-            channel_group_id = group_config.get("channel_group_id")
-            stream_profile_id = group_config.get("stream_profile_id")
-            channel_profile_ids = self._parse_profile_ids(
-                group_config.get("channel_profile_ids")
-            )
-
-            for matched in matched_streams:
-                stream = matched.get("stream", {})
-                event = matched.get("event")
-
-                if not event:
-                    result.errors.append({
-                        "stream": stream.get("name", "Unknown"),
-                        "error": "No event data",
-                    })
-                    continue
-
-                event_id = event.id
-                event_provider = getattr(event, "provider", "espn")
-                stream_name = stream.get("name", "")
-                stream_id = stream.get("id")
-
-                # Check exception keyword
-                matched_keyword, keyword_behavior = self._check_exception_keyword(
-                    stream_name, conn
+            with self._db_factory() as conn:
+                # Get group settings
+                group_id = group_config.get("id")
+                duplicate_mode = group_config.get("duplicate_event_handling", "consolidate")
+                channel_group_id = group_config.get("channel_group_id")
+                stream_profile_id = group_config.get("stream_profile_id")
+                channel_profile_ids = self._parse_profile_ids(
+                    group_config.get("channel_profile_ids")
                 )
 
-                # Determine effective duplicate mode
-                effective_mode = keyword_behavior if keyword_behavior else duplicate_mode
+                for matched in matched_streams:
+                    stream = matched.get("stream", {})
+                    event = matched.get("event")
 
-                # Find existing channel based on mode
-                existing = find_existing_channel(
-                    conn=conn,
-                    group_id=group_id,
-                    event_id=event_id,
-                    event_provider=event_provider,
-                    exception_keyword=matched_keyword,
-                    stream_id=stream_id,
-                    mode=effective_mode,
-                )
+                    if not event:
+                        result.errors.append({
+                            "stream": stream.get("name", "Unknown"),
+                            "error": "No event data",
+                        })
+                        continue
 
-                if existing:
-                    # Handle based on effective mode
-                    channel_result = self._handle_existing_channel(
+                    event_id = event.id
+                    event_provider = getattr(event, "provider", "espn")
+                    stream_name = stream.get("name", "")
+                    stream_id = stream.get("id")
+
+                    # Check exception keyword
+                    matched_keyword, keyword_behavior = self._check_exception_keyword(
+                        stream_name, conn
+                    )
+
+                    # Determine effective duplicate mode
+                    effective_mode = keyword_behavior if keyword_behavior else duplicate_mode
+
+                    # Find existing channel based on mode
+                    existing = find_existing_channel(
                         conn=conn,
-                        existing=existing,
-                        stream=stream,
+                        group_id=group_id,
+                        event_id=event_id,
+                        event_provider=event_provider,
+                        exception_keyword=matched_keyword,
+                        stream_id=stream_id,
+                        mode=effective_mode,
+                    )
+
+                    if existing:
+                        # Handle based on effective mode
+                        channel_result = self._handle_existing_channel(
+                            conn=conn,
+                            existing=existing,
+                            stream=stream,
+                            event=event,
+                            effective_mode=effective_mode,
+                            matched_keyword=matched_keyword,
+                            group_config=group_config,
+                            template=template,
+                        )
+                        result.merge(channel_result)
+                        continue
+
+                    # Check if we should create based on timing
+                    decision = self._timing_manager.should_create_channel(
+                        event,
+                        stream_exists=True,
+                    )
+
+                    if not decision.should_act:
+                        result.skipped.append({
+                            "stream": stream_name,
+                            "event_id": event_id,
+                            "reason": decision.reason,
+                        })
+                        continue
+
+                    # Create new channel
+                    channel_result = self._create_channel(
+                        conn=conn,
                         event=event,
-                        effective_mode=effective_mode,
-                        matched_keyword=matched_keyword,
+                        stream=stream,
                         group_config=group_config,
                         template=template,
+                        matched_keyword=matched_keyword,
+                        channel_group_id=channel_group_id,
+                        stream_profile_id=stream_profile_id,
+                        channel_profile_ids=channel_profile_ids,
                     )
-                    result.merge(channel_result)
-                    continue
 
-                # Check if we should create based on timing
-                decision = self._timing_manager.should_create_channel(
-                    event,
-                    stream_exists=True,
-                )
+                    if channel_result.success:
+                        result.created.append({
+                            "stream": stream_name,
+                            "event_id": event_id,
+                            "channel_id": channel_result.channel_id,
+                            "dispatcharr_channel_id": channel_result.dispatcharr_channel_id,
+                            "channel_number": channel_result.channel_number,
+                            "tvg_id": channel_result.tvg_id,
+                        })
 
-                if not decision.should_act:
-                    result.skipped.append({
-                        "stream": stream_name,
-                        "event_id": event_id,
-                        "reason": decision.reason,
-                    })
-                    continue
+                        # Log history
+                        log_channel_history(
+                            conn=conn,
+                            managed_channel_id=channel_result.channel_id,
+                            change_type="created",
+                            change_source="epg_generation",
+                            notes=f"Created from stream '{stream_name}'",
+                        )
+                    else:
+                        result.errors.append({
+                            "stream": stream_name,
+                            "event_id": event_id,
+                            "error": channel_result.error,
+                        })
 
-                # Create new channel
-                channel_result = self._create_channel(
-                    conn=conn,
-                    event=event,
-                    stream=stream,
-                    group_config=group_config,
-                    template=template,
-                    matched_keyword=matched_keyword,
-                    channel_group_id=channel_group_id,
-                    stream_profile_id=stream_profile_id,
-                    channel_profile_ids=channel_profile_ids,
-                )
-
-                if channel_result.success:
-                    result.created.append({
-                        "stream": stream_name,
-                        "event_id": event_id,
-                        "channel_id": channel_result.channel_id,
-                        "dispatcharr_channel_id": channel_result.dispatcharr_channel_id,
-                        "channel_number": channel_result.channel_number,
-                        "tvg_id": channel_result.tvg_id,
-                    })
-
-                    # Log history
-                    log_channel_history(
-                        conn=conn,
-                        managed_channel_id=channel_result.channel_id,
-                        change_type="created",
-                        change_source="epg_generation",
-                        notes=f"Created from stream '{stream_name}'",
-                    )
-                else:
-                    result.errors.append({
-                        "stream": stream_name,
-                        "event_id": event_id,
-                        "error": channel_result.error,
-                    })
-
-            conn.commit()
         except Exception as e:
             logger.exception("Error processing matched streams")
             result.errors.append({"error": str(e)})
-        finally:
-            conn.close()
 
         return result
 
@@ -996,37 +993,34 @@ class ChannelLifecycleService:
         from teamarr.database.channels import get_channels_pending_deletion
 
         result = StreamProcessResult()
-        conn = self._db_factory()
 
         try:
-            channels = get_channels_pending_deletion(conn)
+            with self._db_factory() as conn:
+                channels = get_channels_pending_deletion(conn)
 
-            for channel in channels:
-                success = self.delete_managed_channel(
-                    conn,
-                    channel.id,
-                    reason="scheduled_delete",
-                )
+                for channel in channels:
+                    success = self.delete_managed_channel(
+                        conn,
+                        channel.id,
+                        reason="scheduled_delete",
+                    )
 
-                if success:
-                    result.deleted.append({
-                        "channel_id": channel.id,
-                        "channel_name": channel.channel_name,
-                        "tvg_id": channel.tvg_id,
-                    })
-                else:
-                    result.errors.append({
-                        "channel_id": channel.id,
-                        "channel_name": channel.channel_name,
-                        "error": "Failed to delete",
-                    })
+                    if success:
+                        result.deleted.append({
+                            "channel_id": channel.id,
+                            "channel_name": channel.channel_name,
+                            "tvg_id": channel.tvg_id,
+                        })
+                    else:
+                        result.errors.append({
+                            "channel_id": channel.id,
+                            "channel_name": channel.channel_name,
+                            "error": "Failed to delete",
+                        })
 
-            conn.commit()
         except Exception as e:
             logger.exception("Error processing scheduled deletions")
             result.errors.append({"error": str(e)})
-        finally:
-            conn.close()
 
         if result.deleted:
             logger.info(f"Deleted {len(result.deleted)} expired channels")
@@ -1049,10 +1043,9 @@ class ChannelLifecycleService:
         if not self._channel_manager or not self._epg_manager:
             return {"error": "Dispatcharr not configured"}
 
-        conn = self._db_factory()
         result = {"associated": 0, "not_found": 0, "errors": 0}
 
-        try:
+        with self._db_factory() as conn:
             # Get all active managed channels
             channels = get_all_managed_channels(conn, include_deleted=False)
 
@@ -1086,9 +1079,6 @@ class ChannelLifecycleService:
                         f"Failed to associate EPG for channel {channel.channel_name}: {e}"
                     )
                     result["errors"] += 1
-
-        finally:
-            conn.close()
 
         if result["associated"]:
             logger.info(f"Associated EPG data with {result['associated']} channels")
@@ -1156,12 +1146,9 @@ def create_lifecycle_service(
     """
     from teamarr.database.channels import get_dispatcharr_settings
 
-    conn = db_factory()
-    try:
+    with db_factory() as conn:
         settings = get_dispatcharr_settings(conn)
         lifecycle = get_lifecycle_settings(conn)
-    finally:
-        conn.close()
 
     channel_manager = None
     logo_manager = None

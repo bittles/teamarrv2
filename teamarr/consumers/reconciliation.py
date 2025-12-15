@@ -173,37 +173,34 @@ class ChannelReconciler:
             result.completed_at = datetime.now()
             return result
 
-        conn = self._db_factory()
         try:
-            # Step 1: Detect orphans (Teamarr records without Dispatcharr channels)
-            teamarr_orphans = self._detect_orphan_teamarr(conn, group_ids)
-            result.issues_found.extend(teamarr_orphans)
+            with self._db_factory() as conn:
+                # Step 1: Detect orphans (Teamarr records without Dispatcharr channels)
+                teamarr_orphans = self._detect_orphan_teamarr(conn, group_ids)
+                result.issues_found.extend(teamarr_orphans)
 
-            # Step 2: Detect orphans (Dispatcharr channels without Teamarr records)
-            dispatcharr_orphans = self._detect_orphan_dispatcharr(conn, group_ids)
-            result.issues_found.extend(dispatcharr_orphans)
+                # Step 2: Detect orphans (Dispatcharr channels without Teamarr records)
+                dispatcharr_orphans = self._detect_orphan_dispatcharr(conn, group_ids)
+                result.issues_found.extend(dispatcharr_orphans)
 
-            # Step 3: Detect duplicates
-            duplicates = self._detect_duplicates(conn, group_ids)
-            result.issues_found.extend(duplicates)
+                # Step 3: Detect duplicates
+                duplicates = self._detect_duplicates(conn, group_ids)
+                result.issues_found.extend(duplicates)
 
-            # Step 4: Detect drift (setting mismatches)
-            drift_issues = self._detect_drift(conn, group_ids)
-            result.issues_found.extend(drift_issues)
+                # Step 4: Detect drift (setting mismatches)
+                drift_issues = self._detect_drift(conn, group_ids)
+                result.issues_found.extend(drift_issues)
 
-            # Step 5: Apply fixes if auto_fix is enabled
-            should_fix = auto_fix if auto_fix is not None else self._settings.get(
-                "auto_fix_enabled", False
-            )
-            if should_fix:
-                self._apply_fixes(conn, result)
+                # Step 5: Apply fixes if auto_fix is enabled
+                should_fix = auto_fix if auto_fix is not None else self._settings.get(
+                    "auto_fix_enabled", False
+                )
+                if should_fix:
+                    self._apply_fixes(conn, result)
 
-            conn.commit()
         except Exception as e:
             result.errors.append(f"Reconciliation error: {e}")
             logger.exception("Reconciliation failed")
-        finally:
-            conn.close()
 
         result.completed_at = datetime.now()
         return result
@@ -649,8 +646,7 @@ class ChannelReconciler:
         """
         from teamarr.database.channels import get_managed_channel
 
-        conn = self._db_factory()
-        try:
+        with self._db_factory() as conn:
             channel = get_managed_channel(conn, managed_channel_id)
             if not channel:
                 return None
@@ -702,9 +698,6 @@ class ChannelReconciler:
 
             return None  # Channel is healthy
 
-        finally:
-            conn.close()
-
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -729,12 +722,9 @@ def create_reconciler(
         get_reconciliation_settings,
     )
 
-    conn = db_factory()
-    try:
+    with db_factory() as conn:
         dispatcharr_settings = get_dispatcharr_settings(conn)
         reconciliation_settings = get_reconciliation_settings(conn)
-    finally:
-        conn.close()
 
     channel_manager = None
 

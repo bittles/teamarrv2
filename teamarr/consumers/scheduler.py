@@ -217,11 +217,8 @@ class LifecycleScheduler:
         from teamarr.database.channels import get_reconciliation_settings
 
         # Check if reconciliation is enabled
-        conn = self._db_factory()
-        try:
+        with self._db_factory() as conn:
             settings = get_reconciliation_settings(conn)
-        finally:
-            conn.close()
 
         if not settings.get("reconcile_on_epg_generation", True):
             return {"skipped": True, "reason": "disabled"}
@@ -250,14 +247,10 @@ class LifecycleScheduler:
         )
 
         # Get retention days from settings
-        conn = self._db_factory()
-        try:
+        with self._db_factory() as conn:
             settings = get_reconciliation_settings(conn)
             retention_days = settings.get("channel_history_retention_days", 90)
             deleted_count = cleanup_old_history(conn, retention_days)
-            conn.commit()
-        finally:
-            conn.close()
 
         if deleted_count > 0:
             logger.info(f"Cleaned up {deleted_count} old history record(s)")
@@ -293,11 +286,8 @@ def start_lifecycle_scheduler(
     from teamarr.database.channels import get_scheduler_settings
 
     # Get settings
-    conn = db_factory()
-    try:
+    with db_factory() as conn:
         settings = get_scheduler_settings(conn)
-    finally:
-        conn.close()
 
     if not settings.get("enabled", True):
         logger.info("Scheduler disabled in settings")
