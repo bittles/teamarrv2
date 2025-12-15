@@ -514,7 +514,7 @@ def list_m3u_groups():
         )
 
     try:
-        groups = conn.m3u.get_groups()
+        groups = conn.m3u.list_groups()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -550,7 +550,7 @@ def list_dispatcharr_channel_groups():
         )
 
     try:
-        groups = conn.channels.get_channel_groups()
+        groups = conn.m3u.list_groups()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -564,3 +564,141 @@ def list_dispatcharr_channel_groups():
         ],
         "total": len(groups),
     }
+
+
+# =============================================================================
+# GROUP PROCESSING
+# =============================================================================
+
+
+class ProcessGroupResponse(BaseModel):
+    """Response from processing a group."""
+
+    group_id: int
+    group_name: str
+    streams_fetched: int
+    streams_matched: int
+    streams_unmatched: int
+    channels_created: int
+    channels_existing: int
+    channels_skipped: int
+    channel_errors: int
+    errors: list[str]
+    duration_seconds: float
+
+
+class ProcessAllResponse(BaseModel):
+    """Response from processing all groups."""
+
+    groups_processed: int
+    total_channels_created: int
+    total_errors: int
+    duration_seconds: float
+    results: list[ProcessGroupResponse]
+
+
+@router.post("/{group_id}/process", response_model=ProcessGroupResponse)
+def process_group(group_id: int):
+    """Process an event EPG group.
+
+    Fetches streams from Dispatcharr, matches them to events,
+    and creates/updates channels.
+    """
+    from datetime import date
+
+    from teamarr.consumers import process_event_group
+    from teamarr.database.groups import get_group
+    from teamarr.dispatcharr import get_factory
+
+    with get_db() as conn:
+        group = get_group(conn, group_id)
+        if not group:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Group {group_id} not found",
+            )
+
+    # Get Dispatcharr client
+    factory = get_factory(get_db)
+    client = factory.get_client() if factory else None
+
+    # Process the group
+    result = process_event_group(
+        db_factory=get_db,
+        group_id=group_id,
+        dispatcharr_client=client,
+        target_date=date.today(),
+    )
+
+    duration = 0.0
+    if result.started_at and result.completed_at:
+        duration = (result.completed_at - result.started_at).total_seconds()
+
+    return ProcessGroupResponse(
+        group_id=result.group_id,
+        group_name=result.group_name,
+        streams_fetched=result.streams_fetched,
+        streams_matched=result.streams_matched,
+        streams_unmatched=result.streams_unmatched,
+        channels_created=result.channels_created,
+        channels_existing=result.channels_existing,
+        channels_skipped=result.channels_skipped,
+        channel_errors=result.channel_errors,
+        errors=result.errors,
+        duration_seconds=duration,
+    )
+
+
+@router.post("/process-all", response_model=ProcessAllResponse)
+def process_all_groups():
+    """Process all active event EPG groups.
+
+    Fetches streams from Dispatcharr, matches them to events,
+    and creates/updates channels for all active groups.
+    """
+    from datetime import date
+
+    from teamarr.consumers import process_all_event_groups
+    from teamarr.dispatcharr import get_factory
+
+    # Get Dispatcharr client
+    factory = get_factory(get_db)
+    client = factory.get_client() if factory else None
+
+    # Process all groups
+    batch_result = process_all_event_groups(
+        db_factory=get_db,
+        dispatcharr_client=client,
+        target_date=date.today(),
+    )
+
+    duration = 0.0
+    if batch_result.started_at and batch_result.completed_at:
+        duration = (batch_result.completed_at - batch_result.started_at).total_seconds()
+
+    return ProcessAllResponse(
+        groups_processed=batch_result.groups_processed,
+        total_channels_created=batch_result.total_channels_created,
+        total_errors=batch_result.total_errors,
+        duration_seconds=duration,
+        results=[
+            ProcessGroupResponse(
+                group_id=r.group_id,
+                group_name=r.group_name,
+                streams_fetched=r.streams_fetched,
+                streams_matched=r.streams_matched,
+                streams_unmatched=r.streams_unmatched,
+                channels_created=r.channels_created,
+                channels_existing=r.channels_existing,
+                channels_skipped=r.channels_skipped,
+                channel_errors=r.channel_errors,
+                errors=r.errors,
+                duration_seconds=(
+                    (r.completed_at - r.started_at).total_seconds()
+                    if r.started_at and r.completed_at
+                    else 0.0
+                ),
+            )
+            for r in batch_result.results
+        ],
+    )

@@ -24,6 +24,13 @@ from teamarr.consumers.event_epg import (
     EventEPGOptions,
     EventTemplateConfig,
 )
+from teamarr.consumers.event_group_processor import (
+    BatchProcessingResult,
+    EventGroupProcessor,
+    ProcessingResult,
+    process_all_event_groups,
+    process_event_group,
+)
 from teamarr.consumers.event_matcher import EventMatcher
 from teamarr.consumers.reconciliation import (
     ChannelReconciler,
@@ -135,6 +142,12 @@ __all__ = [
     "EventEPGOptions",
     "EventMatcher",
     "EventTemplateConfig",
+    # Event group processing
+    "BatchProcessingResult",
+    "EventGroupProcessor",
+    "ProcessingResult",
+    "process_all_event_groups",
+    "process_event_group",
     # Reconciliation
     "ChannelReconciler",
     "ReconciliationIssue",

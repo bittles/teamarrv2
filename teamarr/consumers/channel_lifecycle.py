@@ -819,7 +819,7 @@ class ChannelLifecycleService:
             league=event.league,
             sport=event.sport,
             scheduled_delete_at=delete_time.isoformat() if delete_time else None,
-            sync_status="synced" if dispatcharr_channel_id else "pending",
+            sync_status="in_sync" if dispatcharr_channel_id else "pending",
         )
 
         # Add stream to managed_channel_streams
