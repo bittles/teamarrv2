@@ -252,3 +252,35 @@ GET  /api/v1/matching/preview   # Preview matches
 ```
 
 Full docs: http://localhost:9195/docs
+
+---
+
+## Next Session: V2 Completion
+
+**Plan file**: `/root/.claude/plans/nifty-leaping-porcupine.md`
+
+### Session Summary (Dec 14, 2025)
+
+Completed:
+1. Trashed V1/V2 hybrid codebase
+2. Restored clean V2 from archive (90% complete)
+3. Audited for V1 hackiness (confirmed clean)
+4. Cleaned up documentation
+5. Created completion plan
+
+### Next Steps (In Order)
+
+1. **Validate backend works**
+   - Run `python3 app.py`
+   - Test `/health`, `/api/v1/teams`, `/api/v1/cache/stats`
+   - Fix any import errors
+
+2. **Build React + TypeScript + Tailwind UI**
+   - Dashboard, Teams, Event Groups, Templates, Channels, Settings
+   - Bundled static files served by FastAPI
+
+### Decisions Made
+
+- UI: React + TypeScript + Tailwind CSS
+- Deployment: Single container (bundled static files)
+- No backward compatibility with V1
