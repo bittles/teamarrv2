@@ -7,7 +7,7 @@ otherwise falls back to standard 're' module.
 
 import re
 from dataclasses import dataclass, field
-from typing import Pattern
+from re import Pattern
 
 # Try to import 'regex' module which supports advanced features
 try:

@@ -33,12 +33,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler - runs on startup and shutdown."""
-    from teamarr.consumers import start_lifecycle_scheduler, stop_lifecycle_scheduler
     from teamarr.database import get_db, init_db
     from teamarr.database.settings import get_scheduler_settings
     from teamarr.dispatcharr import close_dispatcharr, get_factory
     from teamarr.providers import ProviderRegistry
-    from teamarr.services import init_league_mapping_service
+    from teamarr.services import (
+        create_cache_service,
+        create_scheduler_service,
+        init_league_mapping_service,
+    )
 
     # Startup
     setup_logging()
@@ -53,10 +56,8 @@ async def lifespan(app: FastAPI):
     logger.info("League mapping service and providers initialized")
 
     # Auto-refresh team/league cache if empty or stale
-    from teamarr.consumers.cache import CacheRefresher
-
-    cache_refresher = CacheRefresher(get_db)
-    if cache_refresher.refresh_if_needed(max_age_days=7):
+    cache_service = create_cache_service(get_db)
+    if cache_service.refresh_if_needed(max_age_days=7):
         logger.info("Team/league cache refreshed on startup")
 
     # Load display settings from database into config cache
@@ -93,6 +94,7 @@ async def lifespan(app: FastAPI):
     with get_db() as conn:
         scheduler_settings = get_scheduler_settings(conn)
 
+    scheduler_service = None
     if scheduler_settings.enabled:
         try:
             # Get Dispatcharr client for scheduler (may be None)
@@ -103,10 +105,9 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
-            started = start_lifecycle_scheduler(
-                db_factory=get_db,
+            scheduler_service = create_scheduler_service(get_db, client)
+            started = scheduler_service.start(
                 interval_minutes=scheduler_settings.interval_minutes,
-                dispatcharr_client=client,
             )
             if started:
                 interval = scheduler_settings.interval_minutes
@@ -124,7 +125,8 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Teamarr V2...")
 
     # Stop scheduler
-    stop_lifecycle_scheduler()
+    if scheduler_service:
+        scheduler_service.stop()
 
     # Close Dispatcharr connection
     close_dispatcharr()

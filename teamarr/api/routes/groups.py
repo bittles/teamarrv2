@@ -787,9 +787,9 @@ def process_group(group_id: int):
     """
     from datetime import date
 
-    from teamarr.consumers import process_event_group
     from teamarr.database.groups import get_group
     from teamarr.dispatcharr import get_factory
+    from teamarr.services import create_group_service
 
     with get_db() as conn:
         group = get_group(conn, group_id)
@@ -804,12 +804,8 @@ def process_group(group_id: int):
     client = factory.get_client() if factory else None
 
     # Process the group
-    result = process_event_group(
-        db_factory=get_db,
-        group_id=group_id,
-        dispatcharr_client=client,
-        target_date=date.today(),
-    )
+    group_service = create_group_service(get_db, client)
+    result = group_service.process_group(group_id, date.today())
 
     duration = 0.0
     if result.started_at and result.completed_at:
@@ -818,13 +814,13 @@ def process_group(group_id: int):
     return ProcessGroupResponse(
         group_id=result.group_id,
         group_name=result.group_name,
-        streams_fetched=result.streams_fetched,
-        streams_matched=result.streams_matched,
-        streams_unmatched=result.streams_unmatched,
-        channels_created=result.channels_created,
-        channels_existing=result.channels_existing,
-        channels_skipped=result.channels_skipped,
-        channel_errors=result.channel_errors,
+        streams_fetched=result.streams.fetched,
+        streams_matched=result.streams.matched,
+        streams_unmatched=result.streams.unmatched,
+        channels_created=result.channels.created,
+        channels_existing=result.channels.existing,
+        channels_skipped=result.channels.skipped,
+        channel_errors=result.channels.errors,
         errors=result.errors,
         duration_seconds=duration,
     )
@@ -839,19 +835,16 @@ def process_all_groups():
     """
     from datetime import date
 
-    from teamarr.consumers import process_all_event_groups
     from teamarr.dispatcharr import get_factory
+    from teamarr.services import create_group_service
 
     # Get Dispatcharr client
     factory = get_factory(get_db)
     client = factory.get_client() if factory else None
 
     # Process all groups
-    batch_result = process_all_event_groups(
-        db_factory=get_db,
-        dispatcharr_client=client,
-        target_date=date.today(),
-    )
+    group_service = create_group_service(get_db, client)
+    batch_result = group_service.process_all_groups(date.today())
 
     duration = 0.0
     if batch_result.started_at and batch_result.completed_at:
@@ -866,13 +859,13 @@ def process_all_groups():
             ProcessGroupResponse(
                 group_id=r.group_id,
                 group_name=r.group_name,
-                streams_fetched=r.streams_fetched,
-                streams_matched=r.streams_matched,
-                streams_unmatched=r.streams_unmatched,
-                channels_created=r.channels_created,
-                channels_existing=r.channels_existing,
-                channels_skipped=r.channels_skipped,
-                channel_errors=r.channel_errors,
+                streams_fetched=r.streams.fetched,
+                streams_matched=r.streams.matched,
+                streams_unmatched=r.streams.unmatched,
+                channels_created=r.channels.created,
+                channels_existing=r.channels.existing,
+                channels_skipped=r.channels.skipped,
+                channel_errors=r.channels.errors,
                 errors=r.errors,
                 duration_seconds=(
                     (r.completed_at - r.started_at).total_seconds()

@@ -226,9 +226,9 @@ def delete_managed_channel(channel_id: int):
 
     Removes the channel from Dispatcharr (if configured) and marks as deleted in DB.
     """
-    from teamarr.consumers import create_lifecycle_service
     from teamarr.database.channels import get_managed_channel
     from teamarr.dispatcharr import get_dispatcharr_client
+    from teamarr.services import create_channel_service, create_default_service
 
     with get_db() as conn:
         channel = get_managed_channel(conn, channel_id)
@@ -245,13 +245,11 @@ def delete_managed_channel(channel_id: int):
         client = None
 
     # Get sports service for template resolution
-    from teamarr.services import create_default_service
-
     sports_service = create_default_service()
-    service = create_lifecycle_service(get_db, sports_service, client)
+    channel_service = create_channel_service(get_db, sports_service, client)
 
     with get_db() as conn:
-        success = service.delete_managed_channel(conn, channel_id, reason="manual")
+        success = channel_service.delete_channel(conn, channel_id, reason="manual")
         conn.commit()
 
     if success:
@@ -273,9 +271,9 @@ def sync_lifecycle():
     Creates channels that are due and deletes expired channels.
     Requires Dispatcharr to be configured.
     """
-    from teamarr.consumers import create_lifecycle_service
     from teamarr.database.settings import get_dispatcharr_settings
     from teamarr.dispatcharr import get_dispatcharr_client
+    from teamarr.services import create_channel_service, create_default_service
 
     with get_db() as conn:
         settings = get_dispatcharr_settings(conn)
@@ -302,13 +300,11 @@ def sync_lifecycle():
         )
 
     # Get sports service for template resolution
-    from teamarr.services import create_default_service
-
     sports_service = create_default_service()
-    service = create_lifecycle_service(get_db, sports_service, client)
+    channel_service = create_channel_service(get_db, sports_service, client)
 
     # Process scheduled deletions
-    result = service.process_scheduled_deletions()
+    result = channel_service.process_scheduled_deletions()
 
     return SyncResponse(
         deleted_count=len(result.deleted),
@@ -325,9 +321,9 @@ def get_reconciliation_status(
 
     Checks for issues without making any changes.
     """
-    from teamarr.consumers import create_reconciler
     from teamarr.database.settings import get_dispatcharr_settings
     from teamarr.dispatcharr import get_dispatcharr_client
+    from teamarr.services import create_channel_service, create_default_service
 
     with get_db() as conn:
         settings = get_dispatcharr_settings(conn)
@@ -355,15 +351,21 @@ def get_reconciliation_status(
     except Exception:
         client = None
 
-    reconciler = create_reconciler(get_db, client)
+    sports_service = create_default_service()
+    channel_service = create_channel_service(get_db, sports_service, client)
 
     # Run detect-only
-    result = reconciler.reconcile(auto_fix=False, group_ids=parsed_group_ids)
+    result = channel_service.reconcile(auto_fix=False, group_ids=parsed_group_ids)
 
     return ReconciliationResponse(
         started_at=result.started_at.isoformat() if result.started_at else None,
         completed_at=result.completed_at.isoformat() if result.completed_at else None,
-        summary=ReconciliationSummary(**result.summary),
+        summary=ReconciliationSummary(
+            orphan_teamarr=result.summary.orphan_teamarr,
+            orphan_dispatcharr=result.summary.orphan_dispatcharr,
+            duplicate=result.summary.duplicates,
+            drift=result.summary.drift,
+        ),
         issues_found=[
             ReconciliationIssueModel(
                 issue_type=i.issue_type,
@@ -378,8 +380,8 @@ def get_reconciliation_status(
             )
             for i in result.issues_found
         ],
-        issues_fixed=result.issues_fixed,
-        issues_skipped=result.issues_skipped,
+        issues_fixed=[],
+        issues_skipped=[],
         errors=result.errors,
     )
 
@@ -390,9 +392,9 @@ def fix_reconciliation(request: ReconciliationRequest):
 
     Detects issues and optionally fixes them based on settings.
     """
-    from teamarr.consumers import create_reconciler
     from teamarr.database.settings import get_dispatcharr_settings
     from teamarr.dispatcharr import get_dispatcharr_client
+    from teamarr.services import create_channel_service, create_default_service
 
     with get_db() as conn:
         settings = get_dispatcharr_settings(conn)
@@ -414,10 +416,11 @@ def fix_reconciliation(request: ReconciliationRequest):
             ) from e
         client = None
 
-    reconciler = create_reconciler(get_db, client)
+    sports_service = create_default_service()
+    channel_service = create_channel_service(get_db, sports_service, client)
 
     # Run reconciliation
-    result = reconciler.reconcile(
+    result = channel_service.reconcile(
         auto_fix=request.auto_fix,
         group_ids=request.group_ids,
     )
@@ -425,7 +428,12 @@ def fix_reconciliation(request: ReconciliationRequest):
     return ReconciliationResponse(
         started_at=result.started_at.isoformat() if result.started_at else None,
         completed_at=result.completed_at.isoformat() if result.completed_at else None,
-        summary=ReconciliationSummary(**result.summary),
+        summary=ReconciliationSummary(
+            orphan_teamarr=result.summary.orphan_teamarr,
+            orphan_dispatcharr=result.summary.orphan_dispatcharr,
+            duplicate=result.summary.duplicates,
+            drift=result.summary.drift,
+        ),
         issues_found=[
             ReconciliationIssueModel(
                 issue_type=i.issue_type,
@@ -440,8 +448,8 @@ def fix_reconciliation(request: ReconciliationRequest):
             )
             for i in result.issues_found
         ],
-        issues_fixed=result.issues_fixed,
-        issues_skipped=result.issues_skipped,
+        issues_fixed=[],
+        issues_skipped=[],
         errors=result.errors,
     )
 

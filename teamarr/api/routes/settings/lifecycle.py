@@ -145,36 +145,40 @@ def update_scheduler_settings(update: SchedulerSettingsModel):
 @router.get("/scheduler/status", response_model=SchedulerStatusResponse)
 def get_scheduler_status():
     """Get current scheduler status."""
-    from teamarr.consumers import get_scheduler_status
+    from teamarr.services import create_scheduler_service
 
-    scheduler_status = get_scheduler_status()
+    scheduler_service = create_scheduler_service(get_db)
+    status = scheduler_service.get_status()
 
     return SchedulerStatusResponse(
-        running=scheduler_status.get("running", False),
-        last_run=scheduler_status.get("last_run"),
-        interval_minutes=scheduler_status.get("interval_minutes"),
+        running=status.running,
+        last_run=status.last_run.isoformat() if status.last_run else None,
+        interval_minutes=status.interval_minutes,
     )
 
 
 @router.post("/scheduler/run")
 def trigger_scheduler_run() -> dict:
     """Manually trigger a scheduler run."""
-    from teamarr.consumers import LifecycleScheduler
     from teamarr.dispatcharr import get_dispatcharr_client
+    from teamarr.services import create_scheduler_service
 
     try:
         client = get_dispatcharr_client(get_db)
     except Exception:
         client = None
 
-    scheduler = LifecycleScheduler(
-        db_factory=get_db,
-        dispatcharr_client=client,
-    )
-
-    results = scheduler.run_once()
+    scheduler_service = create_scheduler_service(get_db, client)
+    result = scheduler_service.run_once()
 
     return {
         "success": True,
-        "results": results,
+        "results": {
+            "started_at": result.started_at.isoformat() if result.started_at else None,
+            "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+            "epg_generation": result.epg_generation,
+            "deletions": result.deletions,
+            "reconciliation": result.reconciliation,
+            "cleanup": result.cleanup,
+        },
     }

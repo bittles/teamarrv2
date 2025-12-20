@@ -14,16 +14,16 @@ from teamarr.api.models import (
     StreamBatchMatchResponse,
     StreamMatchResultModel,
 )
-from teamarr.consumers import (
-    CachedMatcher,
-    EventEPGOptions,
-    Orchestrator,
-    TeamChannelConfig,
-    TeamEPGOptions,
-)
+from teamarr.consumers import CachedMatcher  # Complex component with DB integration
 from teamarr.database import get_db
 from teamarr.database.stats import create_run, save_run
-from teamarr.services import SportsDataService
+from teamarr.services import (
+    EventEPGOptions,
+    SportsDataService,
+    TeamChannelConfig,
+    TeamEPGOptions,
+    create_epg_service,
+)
 
 router = APIRouter()
 
@@ -154,7 +154,7 @@ def generate_epg(
     service: SportsDataService = Depends(get_sports_service),
 ):
     """Generate EPG for teams."""
-    orchestrator = Orchestrator(service)
+    epg_service = create_epg_service(service)
     configs = _load_team_configs(request.team_ids)
 
     if not configs:
@@ -182,7 +182,7 @@ def generate_epg(
     )
 
     try:
-        result = orchestrator.generate_for_teams(configs, options)
+        result = epg_service.generate_team_epg(configs, options)
 
         # Update stats run
         stats_run.programmes_total = len(result.programmes)
@@ -213,7 +213,7 @@ def get_xmltv(
 ):
     """Get XMLTV output for team-based EPG."""
     parsed_ids = _parse_team_ids(team_ids)
-    orchestrator = Orchestrator(service)
+    epg_service = create_epg_service(service)
     configs = _load_team_configs(parsed_ids)
 
     if not configs:
@@ -233,7 +233,7 @@ def get_xmltv(
         sport_durations=settings["sport_durations"],
         default_duration_hours=settings["default_duration"],
     )
-    result = orchestrator.generate_for_teams(configs, options)
+    result = epg_service.generate_team_epg(configs, options)
 
     return Response(
         content=result.xmltv,
@@ -266,17 +266,14 @@ def generate_event_epg(
     service: SportsDataService = Depends(get_sports_service),
 ):
     """Generate event-based EPG. Each event gets its own channel."""
-    settings = _get_settings()
-    orchestrator = Orchestrator(service)
+    epg_service = create_epg_service(service)
     target = _parse_date(request.target_date)
 
     options = EventEPGOptions(
         pregame_minutes=request.pregame_minutes,
-        default_duration_hours=request.duration_hours,
-        sport_durations=settings["sport_durations"],
     )
 
-    result = orchestrator.generate_for_events(
+    result = epg_service.generate_event_epg(
         request.leagues, target, request.channel_prefix, options
     )
 
@@ -305,17 +302,14 @@ def get_event_xmltv(
             detail="At least one league required",
         )
 
-    settings = _get_settings()
-    orchestrator = Orchestrator(service)
+    epg_service = create_epg_service(service)
     target = _parse_date(target_date)
 
     options = EventEPGOptions(
         pregame_minutes=pregame_minutes,
-        default_duration_hours=duration_hours,
-        sport_durations=settings["sport_durations"],
     )
 
-    result = orchestrator.generate_for_events(league_list, target, channel_prefix, options)
+    result = epg_service.generate_event_epg(league_list, target, channel_prefix, options)
 
     return Response(
         content=result.xmltv,

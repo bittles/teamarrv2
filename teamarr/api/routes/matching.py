@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from teamarr.api.dependencies import get_sports_service
 from teamarr.api.models import EventMatchRequest, EventMatchResponse
-from teamarr.consumers import EventMatcher
-from teamarr.services import SportsDataService
+from teamarr.services import SportsDataService, create_matching_service
 
 router = APIRouter()
 
@@ -32,32 +31,31 @@ def match_event(
 ):
     """Match a query to a sporting event."""
     target = _parse_date(request.target_date)
-    events = service.get_events(request.league, target)
-
-    if not events:
-        return EventMatchResponse(found=False)
-
-    matcher = EventMatcher()
+    matching_service = create_matching_service(service)
 
     if request.team1_id and request.team2_id:
-        event = matcher.find_by_team_ids(events, request.team1_id, request.team2_id)
+        result = matching_service.match_by_team_ids(
+            request.league, target, request.team1_id, request.team2_id
+        )
     elif request.team1_name and request.team2_name:
-        event = matcher.find_by_team_names(events, request.team1_name, request.team2_name)
+        result = matching_service.match_by_team_names(
+            request.league, target, request.team1_name, request.team2_name
+        )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Provide either (team1_id, team2_id) or (team1_name, team2_name)",
         )
 
-    if not event:
+    if not result.found or not result.event:
         return EventMatchResponse(found=False)
 
     return EventMatchResponse(
         found=True,
-        event_id=event.id,
-        event_name=event.name,
-        home_team=event.home_team.name,
-        away_team=event.away_team.name,
-        start_time=event.start_time.isoformat(),
-        venue=event.venue.name if event.venue else None,
+        event_id=result.event.id,
+        event_name=result.event.name,
+        home_team=result.event.home_team.name,
+        away_team=result.event.away_team.name,
+        start_time=result.event.start_time.isoformat(),
+        venue=result.event.venue.name if result.event.venue else None,
     )

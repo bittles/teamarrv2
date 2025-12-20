@@ -12,11 +12,8 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Query
 
-from teamarr.consumers.cache import (
-    CacheRefresher,
-    get_cache,
-)
 from teamarr.database import get_db
+from teamarr.services import create_cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +27,8 @@ def get_cache_status() -> dict:
     Returns:
         Cache status including last refresh time, counts, and staleness
     """
-    cache = get_cache()
-    stats = cache.get_cache_stats()
+    cache_service = create_cache_service(get_db)
+    stats = cache_service.get_stats()
 
     return {
         "last_refresh": stats.last_refresh.isoformat() if stats.last_refresh else None,
@@ -39,7 +36,7 @@ def get_cache_status() -> dict:
         "teams_count": stats.teams_count,
         "refresh_duration_seconds": stats.refresh_duration_seconds,
         "is_stale": stats.is_stale,
-        "is_empty": cache.is_cache_empty(),
+        "is_empty": stats.is_empty,
         "refresh_in_progress": stats.refresh_in_progress,
         "last_error": stats.last_error,
     }
@@ -54,8 +51,8 @@ def trigger_refresh(background_tasks: BackgroundTasks) -> dict:
     Returns:
         Acknowledgement that refresh was started
     """
-    cache = get_cache()
-    stats = cache.get_cache_stats()
+    cache_service = create_cache_service(get_db)
+    stats = cache_service.get_stats()
 
     if stats.refresh_in_progress:
         return {
@@ -64,9 +61,11 @@ def trigger_refresh(background_tasks: BackgroundTasks) -> dict:
         }
 
     def run_refresh():
-        refresher = CacheRefresher(get_db)
-        result = refresher.refresh()
-        logger.info(f"Cache refresh completed: {result}")
+        svc = create_cache_service(get_db)
+        result = svc.refresh()
+        logger.info(
+            f"Cache refresh completed: leagues={result.leagues_added}, teams={result.teams_added}"
+        )
 
     # Run in background thread
     background_tasks.add_task(run_refresh)
@@ -97,16 +96,18 @@ def list_leagues(
     Returns:
         List of leagues
     """
-    cache = get_cache()
-    leagues = cache.get_all_leagues(sport=sport, provider=provider, import_enabled_only=import_only)
+    cache_service = create_cache_service(get_db)
+    leagues = cache_service.get_leagues(
+        sport=sport, provider=provider, import_enabled_only=import_only
+    )
 
     return {
         "count": len(leagues),
         "leagues": [
             {
-                "slug": league.league_slug,
+                "slug": league.slug,
                 "provider": league.provider,
-                "name": league.league_name,
+                "name": league.name,
                 "sport": league.sport,
                 "team_count": league.team_count,
                 "logo_url": league.logo_url,
@@ -199,8 +200,8 @@ def find_candidate_leagues(
     Returns:
         List of (league, provider) tuples where both teams exist
     """
-    cache = get_cache()
-    candidates = cache.find_candidate_leagues(team1, team2, sport)
+    cache_service = create_cache_service(get_db)
+    candidates = cache_service.find_candidate_leagues(team1, team2, sport)
 
     return {
         "team1": team1,
@@ -263,24 +264,36 @@ def get_team_leagues(provider: str, provider_team_id: str) -> dict:
     Returns:
         Dict with team info and list of leagues
     """
-    cache = get_cache()
-    leagues = cache.get_team_leagues(provider_team_id, provider)
+    # Query leagues directly from database
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT league
+            FROM team_cache
+            WHERE provider = ? AND provider_team_id = ?
+            """,
+            (provider, provider_team_id),
+        )
+        leagues = [row["league"] for row in cursor.fetchall()]
 
     # Get league details for each
+    cache_service = create_cache_service(get_db)
+    all_leagues = cache_service.get_leagues()
+    league_lookup = {lg.slug: lg for lg in all_leagues}
+
     league_details = []
     for league_slug in leagues:
-        league_entries = cache.get_all_leagues()
-        for entry in league_entries:
-            if entry.league_slug == league_slug:
-                league_details.append(
-                    {
-                        "slug": entry.league_slug,
-                        "name": entry.league_name,
-                        "sport": entry.sport,
-                        "logo_url": entry.logo_url,
-                    }
-                )
-                break
+        if league_slug in league_lookup:
+            entry = league_lookup[league_slug]
+            league_details.append(
+                {
+                    "slug": entry.slug,
+                    "name": entry.name,
+                    "sport": entry.sport,
+                    "logo_url": entry.logo_url,
+                }
+            )
         else:
             # League not found in cache, add basic info
             league_details.append(
@@ -310,16 +323,37 @@ def get_league_info(league_slug: str) -> dict:
     Returns:
         League metadata or 404
     """
-    cache = get_cache()
-    league = cache.get_league_info(league_slug)
+    # Query directly from database
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT league, provider, sport, COUNT(*) as team_count
+            FROM team_cache
+            WHERE league = ?
+            GROUP BY league, provider, sport
+            """,
+            (league_slug,),
+        )
+        row = cursor.fetchone()
 
-    if not league:
+    if not row:
         return {"error": "League not found", "league": league_slug}
 
+    # Get league name from league_cache if available
+    league_name = league_slug.upper()
+    with get_db() as conn:
+        name_row = conn.execute(
+            "SELECT league_name FROM league_cache WHERE league_slug = ?",
+            (league_slug,),
+        ).fetchone()
+        if name_row:
+            league_name = name_row["league_name"]
+
     return {
-        "slug": league.league_slug,
-        "provider": league.provider,
-        "name": league.league_name,
-        "sport": league.sport,
-        "team_count": league.team_count,
+        "slug": row["league"],
+        "provider": row["provider"],
+        "name": league_name,
+        "sport": row["sport"],
+        "team_count": row["team_count"],
     }
