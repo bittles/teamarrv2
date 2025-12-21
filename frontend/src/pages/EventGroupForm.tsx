@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
-import { ArrowLeft, Loader2, Save, ChevronRight, Check, X } from "lucide-react"
+import { ArrowLeft, Loader2, Save, ChevronRight, X } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -42,39 +42,6 @@ async function fetchLeagues(): Promise<CachedLeague[]> {
   const data = await response.json()
   return data.leagues || []
 }
-
-// Common single-league options
-const COMMON_LEAGUES = [
-  { sport: "football", leagues: [
-    { slug: "nfl", name: "NFL" },
-    { slug: "ncaaf", name: "College Football" },
-  ]},
-  { sport: "basketball", leagues: [
-    { slug: "nba", name: "NBA" },
-    { slug: "ncaam", name: "College Basketball (M)" },
-    { slug: "ncaaw", name: "College Basketball (W)" },
-    { slug: "wnba", name: "WNBA" },
-  ]},
-  { sport: "hockey", leagues: [
-    { slug: "nhl", name: "NHL" },
-  ]},
-  { sport: "baseball", leagues: [
-    { slug: "mlb", name: "MLB" },
-  ]},
-  { sport: "soccer", leagues: [
-    { slug: "usa.1", name: "MLS" },
-    { slug: "eng.1", name: "Premier League" },
-    { slug: "esp.1", name: "La Liga" },
-    { slug: "ger.1", name: "Bundesliga" },
-    { slug: "ita.1", name: "Serie A" },
-    { slug: "fra.1", name: "Ligue 1" },
-    { slug: "uefa.champions", name: "Champions League" },
-    { slug: "uefa.europa", name: "Europa League" },
-  ]},
-  { sport: "mma", leagues: [
-    { slug: "ufc", name: "UFC" },
-  ]},
-]
 
 // Sport display names
 const SPORT_NAMES: Record<string, string> = {
@@ -466,66 +433,53 @@ export function EventGroupForm() {
             {/* Sport Selection */}
             <div className="space-y-2">
               <Label>Sport</Label>
-              <div className="flex flex-wrap gap-2">
-                {COMMON_LEAGUES.map(({ sport }) => (
-                  <Button
-                    key={sport}
-                    variant={selectedSport === sport ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => {
-                      setSelectedSport(sport)
-                      setSelectedLeague(null)
-                    }}
-                  >
-                    {SPORT_NAMES[sport] || sport}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {/* League Selection */}
-            {selectedSport && (
-              <div className="space-y-2">
-                <Label>League</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {COMMON_LEAGUES.find(s => s.sport === selectedSport)?.leagues.map(league => (
+              {isLoadingLeagues ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading sports...
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {Object.keys(leaguesBySport).sort((a, b) =>
+                    (SPORT_NAMES[a] || a).localeCompare(SPORT_NAMES[b] || b)
+                  ).map((sport) => (
                     <Button
-                      key={league.slug}
-                      variant={selectedLeague === league.slug ? "default" : "outline"}
-                      className="justify-start"
-                      onClick={() => setSelectedLeague(league.slug)}
+                      key={sport}
+                      variant={selectedSport === sport ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setSelectedSport(sport)
+                        setSelectedLeague(null)
+                      }}
                     >
-                      {selectedLeague === league.slug && <Check className="h-4 w-4 mr-2" />}
-                      {league.name}
+                      {SPORT_NAMES[sport] || sport}
                     </Button>
                   ))}
                 </div>
+              )}
+            </div>
 
-                {/* Show more leagues from cache */}
-                {leaguesBySport[selectedSport] && leaguesBySport[selectedSport].length > 0 && (
-                  <div className="pt-4 border-t">
-                    <Label className="text-muted-foreground">More {SPORT_NAMES[selectedSport]} Leagues</Label>
-                    <div className="mt-2 max-h-48 overflow-y-auto grid grid-cols-3 gap-1">
-                      {leaguesBySport[selectedSport]
-                        .filter(l => !COMMON_LEAGUES.find(s => s.sport === selectedSport)?.leagues.some(cl => cl.slug === l.slug))
-                        .map(league => (
-                          <button
-                            key={league.slug}
-                            className={cn(
-                              "flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-accent",
-                              selectedLeague === league.slug && "bg-primary text-primary-foreground"
-                            )}
-                            onClick={() => setSelectedLeague(league.slug)}
-                          >
-                            {league.logo_url && (
-                              <img src={league.logo_url} alt="" className="h-4 w-4 object-contain" />
-                            )}
-                            <span className="truncate">{league.name}</span>
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
+            {/* League Selection */}
+            {selectedSport && leaguesBySport[selectedSport] && (
+              <div className="space-y-2">
+                <Label>League ({leaguesBySport[selectedSport].length} available)</Label>
+                <div className="max-h-72 overflow-y-auto grid grid-cols-3 gap-1 border rounded-md p-2">
+                  {leaguesBySport[selectedSport].map(league => (
+                    <button
+                      key={league.slug}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left hover:bg-accent",
+                        selectedLeague === league.slug && "bg-primary text-primary-foreground"
+                      )}
+                      onClick={() => setSelectedLeague(league.slug)}
+                    >
+                      {league.logo_url && (
+                        <img src={league.logo_url} alt="" className="h-4 w-4 object-contain" />
+                      )}
+                      <span className="truncate">{league.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
