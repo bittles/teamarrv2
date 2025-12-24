@@ -76,7 +76,7 @@ def _load_team_configs(team_ids: list[int] | None = None) -> list[TeamChannelCon
             configs.append(
                 TeamChannelConfig(
                     team_id=row["provider_team_id"],
-                    league=row["league"],
+                    league=row["primary_league"],
                     team_name=row["team_name"],
                     team_abbrev=row["team_abbrev"],
                     channel_id=row["channel_id"],
