@@ -25,9 +25,21 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
         SQLite connection with row factory set to sqlite3.Row
     """
     path = Path(db_path) if db_path else DEFAULT_DB_PATH
-    conn = sqlite3.connect(path)
+
+    # timeout=30: Wait up to 30 seconds if database is locked by another connection
+    conn = sqlite3.connect(path, timeout=30.0)
     conn.row_factory = sqlite3.Row
+
+    # Enable Write-Ahead Logging for better concurrent access
+    # WAL allows readers to not block writers and vice versa
+    conn.execute("PRAGMA journal_mode=WAL")
+
+    # Wait up to 30 seconds if a table is locked (milliseconds)
+    conn.execute("PRAGMA busy_timeout=30000")
+
+    # Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON")
+
     return conn
 
 
@@ -71,11 +83,18 @@ def init_db(db_path: Path | str | None = None) -> None:
 
     try:
         with get_db(db_path) as conn:
+            # First, verify this is a valid V2-compatible database by checking integrity
+            # and querying a core table. This catches both corruption AND V1 databases.
+            _verify_database_integrity(conn, path)
+
             conn.executescript(schema_sql)
             # Run migrations for existing databases
             _run_migrations(conn)
             # Seed TSDB cache if empty or incomplete
             _seed_tsdb_cache_if_needed(conn)
+
+            # Final verification: ensure settings table exists and is queryable
+            conn.execute("SELECT id FROM settings LIMIT 1")
     except sqlite3.DatabaseError as e:
         if "file is not a database" in str(e):
             logger.error(
@@ -91,6 +110,62 @@ def init_db(db_path: Path | str | None = None) -> None:
                 "Please use a fresh data directory or delete the existing database."
             ) from e
         raise
+
+
+def _verify_database_integrity(conn: sqlite3.Connection, path: Path) -> None:
+    """Verify database is valid and compatible with V2.
+
+    This runs BEFORE schema initialization to catch:
+    1. Corrupt database files ("file is not a database")
+    2. V1 databases (different schema, incompatible)
+
+    Args:
+        conn: Database connection
+        path: Path to database file for error messages
+
+    Raises:
+        RuntimeError: If database is a V1 database
+        sqlite3.DatabaseError: If database file is corrupt
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Force an actual read from the file to detect corruption early
+    # PRAGMA integrity_check would be thorough but slow; just query sqlite_master
+    try:
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 100")
+        existing_tables = {row["name"] for row in cursor.fetchall()}
+    except sqlite3.DatabaseError:
+        # Let the outer handler deal with "file is not a database" errors
+        raise
+
+    # Check for V1-specific tables that indicate an incompatible database
+    # These tables exist only in V1 and NOT in V2
+    v1_indicators = {
+        "schedule_cache",        # V1 caching
+        "league_config",         # V1 league configuration
+        "h2h_cache",            # V1 head-to-head (removed in V2)
+        "error_log",            # V1 error logging
+        "soccer_cache_meta",    # V1 soccer-specific cache
+        "team_stats_cache",     # V1 stats cache
+    }
+    v1_tables_found = v1_indicators & existing_tables
+
+    if v1_tables_found:
+        logger.error(
+            f"Database file '{path}' appears to be a V1 database. "
+            f"Found V1-specific tables: {v1_tables_found}. "
+            "V2 requires a fresh database - please either:\n"
+            "  1. Use a different data directory for V2, or\n"
+            "  2. Backup and delete the existing database file"
+        )
+        raise RuntimeError(
+            f"V1 database detected at '{path}'. "
+            f"Found V1 tables: {v1_tables_found}. "
+            "V2 is not compatible with V1 databases. "
+            "Please use a fresh data directory or delete the existing database."
+        )
 
 
 def _seed_tsdb_cache_if_needed(conn: sqlite3.Connection) -> None:

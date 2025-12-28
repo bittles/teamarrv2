@@ -297,7 +297,7 @@ class EventEPGRequest(BaseModel):
     leagues: list[str]
     target_date: str | None = None
     channel_prefix: str = "event"
-    pregame_minutes: int = 30
+    pregame_minutes: int = 0
     duration_hours: float = 3.0
 
 

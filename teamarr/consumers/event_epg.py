@@ -36,7 +36,7 @@ class EventChannelInfo:
 class EventEPGOptions:
     """Options for event-based EPG generation."""
 
-    pregame_minutes: int = 30
+    pregame_minutes: int = 0
     default_duration_hours: float = 3.0
     template: EventTemplateConfig = field(default_factory=EventTemplateConfig)
 

@@ -24,7 +24,7 @@ class TeamEPGOptions:
 
     schedule_days_ahead: int = 30  # How far to fetch schedule (for .next vars)
     output_days_ahead: int = 14  # How many days to include in XMLTV
-    pregame_minutes: int = 30
+    pregame_minutes: int = 0
     default_duration_hours: float = 3.0
     template: TemplateConfig | None = None  # REQUIRED - must be loaded from database
 

@@ -328,7 +328,7 @@ def get_event_xmltv(
     leagues: str = Query(..., description="Comma-separated league codes"),
     target_date: str | None = Query(None, description="Date (YYYY-MM-DD)"),
     channel_prefix: str = Query("event"),
-    pregame_minutes: int = Query(30, ge=0, le=120),
+    pregame_minutes: int = Query(0, ge=0, le=120),
     duration_hours: float = Query(3.0, ge=1.0, le=8.0),
     service: SportsDataService = Depends(get_sports_service),
 ):

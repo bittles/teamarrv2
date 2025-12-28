@@ -43,8 +43,8 @@ class EventEPGOptions:
 
     output_days_ahead: int = 14
     include_filler: bool = True
-    pregame_minutes: int = 30
-    postgame_minutes: int = 30
+    pregame_minutes: int = 0
+    postgame_minutes: int = 0
 
 
 @dataclass

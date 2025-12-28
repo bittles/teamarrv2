@@ -112,7 +112,6 @@ class FillerOptions:
     # Default duration if sport not found
     default_duration: float = 3.0
 
-    # Pregame buffer (minutes) - must match the value used in TeamEPGOptions
-    # The actual game programme starts this many minutes before event.start_time
-    # Filler should end when the game PROGRAMME starts, not the event
-    pregame_buffer_minutes: int = 30
+    # Pregame buffer (minutes) - gap between pregame filler end and game start
+    # Set to 0 so pregame filler ends exactly when the game programme starts
+    pregame_buffer_minutes: int = 0
