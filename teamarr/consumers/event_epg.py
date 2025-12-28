@@ -178,7 +178,7 @@ class EventEPGGenerator:
             selected_template = selector.select(
                 options.template.conditional_descriptions,
                 context,
-                context.current,  # GameContext for the event
+                context.game_context,  # GameContext for the event
             )
             if selected_template:
                 description = self._resolver.resolve(selected_template, context)

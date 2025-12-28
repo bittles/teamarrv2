@@ -180,7 +180,8 @@ def run_full_generation(
         if dispatcharr_client and dispatcharr_settings.epg_id:
             update_progress("dispatcharr", 85, "Refreshing Dispatcharr EPG...")
             epg_manager = EPGManager(dispatcharr_client)
-            refresh_result = epg_manager.wait_for_refresh(dispatcharr_settings.epg_id, timeout=60)
+            # Increased timeout from 60s to 120s for large EPGs
+            refresh_result = epg_manager.wait_for_refresh(dispatcharr_settings.epg_id, timeout=120)
             result.epg_refresh = {
                 "success": refresh_result.success,
                 "message": refresh_result.message,

@@ -278,10 +278,10 @@ class TSDBClient:
         self._rate_limiter.acquire()
 
         url = f"{TSDB_BASE_URL}/{self._api_key}/{endpoint}"
-        client = self._get_client()
 
         for attempt in range(self._retry_count):
             try:
+                client = self._get_client()
                 response = client.get(url, params=params)
 
                 # Handle rate limit response (reactive)
@@ -301,14 +301,27 @@ class TSDBClient:
                     continue
                 return None
 
-            except httpx.RequestError as e:
+            except (httpx.RequestError, OSError) as e:
+                # OSError includes "Bad file descriptor" from stale connections
                 logger.warning(f"Request failed for {url}: {e}")
+                # Reset client on connection errors to get fresh connections
+                self._reset_client()
                 if attempt < self._retry_count - 1:
                     time.sleep(self._retry_delay * (attempt + 1))
                     continue
                 return None
 
         return None
+
+    def _reset_client(self) -> None:
+        """Reset the HTTP client to clear stale connections."""
+        with self._client_lock:
+            if self._client:
+                try:
+                    self._client.close()
+                except Exception:
+                    pass
+                self._client = None
 
     def supports_league(self, league: str) -> bool:
         """Check if we have mapping for this league."""
