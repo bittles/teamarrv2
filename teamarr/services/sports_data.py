@@ -247,17 +247,22 @@ class SportsDataService:
                 if hasattr(client, "reset_rate_limit_stats"):
                     client.reset_rate_limit_stats()
 
-    def prewarm_tsdb_leagues(self, leagues: list[str]) -> None:
+    def prewarm_tsdb_leagues(self, leagues: list[str], days_ahead: int = 14) -> None:
         """Pre-warm TSDB cache for multiple leagues.
 
-        Fetches teams for each league upfront, populating the cache.
-        This reduces API calls when processing multiple teams from
-        the same league, since get_teams_in_league is called once
-        per league instead of once per team.
+        Fetches teams AND events for each league upfront, populating the cache.
+        This ensures all subsequent get_team_schedule calls are cache hits.
+
+        Pre-warms:
+        1. Teams in league (24h TTL) - used by get_team_schedule to find team name
+        2. Events by date (tiered TTL) - the actual schedule data for each day
 
         Args:
             leagues: List of canonical league codes to pre-warm
+            days_ahead: Number of days to pre-warm (default 14, matches get_team_schedule)
         """
+        from datetime import timedelta
+
         if not leagues:
             return
 
@@ -273,10 +278,29 @@ class SportsDataService:
             return
 
         unique_leagues = list(set(leagues))
-        logger.info(f"Pre-warming TSDB cache for {len(unique_leagues)} leagues")
+        today = date.today()
+
+        # Cap to TSDB's max days (same as provider)
+        days_ahead = min(days_ahead, 14)
+
+        total_calls = len(unique_leagues) * (1 + days_ahead)  # 1 teams call + N days
+        logger.info(
+            f"Pre-warming TSDB cache: {len(unique_leagues)} leagues × "
+            f"{days_ahead} days = ~{total_calls} API calls"
+        )
 
         for league in unique_leagues:
-            if tsdb_provider.supports_league(league):
-                # This populates the client cache (24h TTL)
-                tsdb_provider.get_teams_in_league(league)
-                logger.debug(f"Pre-warmed TSDB cache for league: {league}")
+            if not tsdb_provider.supports_league(league):
+                continue
+
+            # 1. Pre-warm teams cache (needed for team name lookup)
+            tsdb_provider.get_teams_in_league(league)
+
+            # 2. Pre-warm events cache for each day
+            # This is what get_team_schedule calls internally
+            for i in range(days_ahead):
+                target_date = today + timedelta(days=i)
+                # Use get_events which goes through provider → client cache
+                tsdb_provider.get_events(league, target_date)
+
+            logger.debug(f"Pre-warmed TSDB cache for league: {league} ({days_ahead} days)")
