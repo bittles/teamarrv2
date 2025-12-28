@@ -10,11 +10,12 @@ This is the main entry point for team-based EPG generation from the scheduler.
 """
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from sqlite3 import Connection
-from typing import Any, Callable
+from typing import Any
 
 from teamarr.consumers.team_epg import TeamEPGGenerator, TeamEPGOptions
 from teamarr.core import Programme
@@ -223,7 +224,9 @@ class TeamProcessor:
         # Process ESPN teams in parallel
         if espn_teams:
             num_workers = min(MAX_WORKERS, len(espn_teams))
-            logger.info(f"Processing {len(espn_teams)} ESPN teams with {num_workers} parallel workers")
+            logger.info(
+                f"Processing {len(espn_teams)} ESPN teams with {num_workers} parallel workers"
+            )
 
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 future_to_team = {
@@ -400,7 +403,18 @@ class TeamProcessor:
         return result
 
     def _build_options(self, conn: Connection, team: TeamConfig) -> TeamEPGOptions:
-        """Build TeamEPGOptions from database settings."""
+        """Build TeamEPGOptions from database settings.
+
+        Pre-loads the template and filler config here to avoid DB access
+        in the EPG generator, which is critical for thread-safety during
+        parallel processing.
+        """
+        from teamarr.database.templates import (
+            get_template,
+            template_to_filler_config,
+            template_to_programme_config,
+        )
+
         # Load global settings
         row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
         settings = dict(row) if row else {}
@@ -416,6 +430,15 @@ class TeamProcessor:
             "boxing": settings.get("duration_boxing", 4.0),
         }
 
+        # Pre-load template and filler config (avoids DB access in parallel threads)
+        template_config = None
+        filler_config = None
+        if team.template_id:
+            template = get_template(conn, team.template_id)
+            if template:
+                template_config = template_to_programme_config(template)
+                filler_config = template_to_filler_config(template)
+
         return TeamEPGOptions(
             schedule_days_ahead=settings.get("team_schedule_days_ahead", 30),
             output_days_ahead=settings.get("epg_output_days_ahead", 14),
@@ -424,6 +447,8 @@ class TeamProcessor:
             epg_timezone=settings.get("epg_timezone", "America/New_York"),
             midnight_crossover_mode=settings.get("midnight_crossover_mode", "postgame"),
             template_id=team.template_id,
+            template=template_config,  # Pre-loaded template
+            filler_config=filler_config,  # Pre-loaded filler config
             filler_enabled=True,
             include_final_events=settings.get("include_final_events", False),
         )

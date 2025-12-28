@@ -7,8 +7,10 @@ Two-phase data flow:
 - Enrichment (summary, 30min cache): Odds, rich data (per event, ESPN only)
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 
 from teamarr.core import Event, Programme, TemplateConfig
 from teamarr.services import SportsDataService
@@ -16,6 +18,8 @@ from teamarr.templates.context_builder import ContextBuilder
 from teamarr.templates.resolver import TemplateResolver
 from teamarr.utilities.sports import get_sport_duration
 from teamarr.utilities.tz import now_user
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,6 +34,7 @@ class TeamEPGOptions:
 
     # Filler generation options
     filler_enabled: bool = True  # Enable filler generation
+    filler_config: Any = None  # Pre-loaded FillerConfig (avoids DB access in threads)
     epg_timezone: str = "America/New_York"
     midnight_crossover_mode: str = "postgame"  # 'postgame' or 'idle'
 
@@ -155,8 +160,9 @@ class TeamEPGGenerator:
         """
         options = options or TeamEPGOptions()
 
-        # Load template from database if template_id is set
-        if options.template_id:
+        # Load template from database if template_id is set and not already pre-loaded
+        # Template should be pre-loaded by TeamProcessor to avoid DB access in threads
+        if options.template_id and options.template is None:
             loaded_template = self._load_programme_template(options.template_id)
             if loaded_template:
                 options.template = loaded_template
@@ -164,9 +170,6 @@ class TeamEPGGenerator:
         # CRITICAL: Template is REQUIRED - no hardcoded defaults
         # If no template is available, return empty list
         if options.template is None:
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.warning(
                 f"No template configured for team {team_id} in league {league}. "
                 "EPG generation requires a template. Skipping."
@@ -408,13 +411,17 @@ class TeamEPGGenerator:
     def _load_filler_config(self, options: TeamEPGOptions):
         """Load filler config from database template or use defaults.
 
-        If options.template_id is set, loads the template from the database
-        and converts it to FillerConfig. Otherwise, returns default config.
+        If options.filler_config is already set (pre-loaded by TeamProcessor),
+        returns it directly to avoid DB access in threads.
         """
         from teamarr.consumers.filler import FillerConfig
 
+        # Use pre-loaded config if available (critical for thread-safety)
+        if options.filler_config is not None:
+            return options.filler_config
+
+        # Fallback: load from database (only for non-parallel usage)
         if options.template_id:
-            # Try to load from database
             try:
                 from teamarr.database import get_db
                 from teamarr.database.templates import get_template, template_to_filler_config
@@ -430,7 +437,7 @@ class TeamEPGGenerator:
 
         # Default filler config
         return FillerConfig(
-            category=options.template.category,
+            category=options.template.category if options.template else "Sports",
         )
 
     def _load_programme_template(self, template_id: int) -> TemplateConfig | None:
