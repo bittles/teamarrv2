@@ -529,13 +529,18 @@ class CacheRefresher:
     def _apply_default_aliases(self) -> int:
         """Apply default league_id_alias values for configured leagues.
 
-        This ensures {league} template variable works correctly for all leagues.
+        SINGLE SOURCE OF TRUTH for league aliases.
+
+        This function is the authoritative source for league display aliases.
+        It runs on every cache refresh and unconditionally overwrites whatever
+        is in the database. The schema.sql seeds leagues with NULL aliases,
+        and this function populates them.
+
         Aliases are stored in display format:
         - Abbreviations uppercase (NFL, EPL, UCL)
         - Proper names in title case (Bundesliga, La Liga, Serie A)
 
-        Unconditionally sets aliases for leagues in our defaults list to ensure
-        correct casing. Custom aliases set by users would need UI support.
+        To add/change an alias, edit the default_aliases dict below.
 
         Returns:
             Number of leagues updated
