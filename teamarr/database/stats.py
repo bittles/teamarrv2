@@ -51,6 +51,7 @@ class ProcessingRun:
     channels_deleted: int = 0
     channels_skipped: int = 0
     channels_errors: int = 0
+    channels_active: int = 0  # Total active managed channels at end of run
 
     # Programme metrics
     programmes_total: int = 0
@@ -97,6 +98,7 @@ class ProcessingRun:
                 "updated": self.channels_updated,
                 "deleted": self.channels_deleted,
                 "skipped": self.channels_skipped,
+                "active": self.channels_active,
                 "errors": self.channels_errors,
             },
             "programmes": {
@@ -224,6 +226,7 @@ def save_run(conn: Connection, run: ProcessingRun) -> None:
             channels_deleted = ?,
             channels_skipped = ?,
             channels_errors = ?,
+            channels_active = ?,
             programmes_total = ?,
             programmes_events = ?,
             programmes_pregame = ?,
@@ -247,6 +250,7 @@ def save_run(conn: Connection, run: ProcessingRun) -> None:
             run.channels_deleted,
             run.channels_skipped,
             run.channels_errors,
+            run.channels_active,
             run.programmes_total,
             run.programmes_events,
             run.programmes_pregame,
@@ -324,6 +328,7 @@ def _row_to_run(row: dict) -> ProcessingRun:
         channels_deleted=row.get("channels_deleted", 0),
         channels_skipped=row.get("channels_skipped", 0),
         channels_errors=row.get("channels_errors", 0),
+        channels_active=row.get("channels_active", 0),
         programmes_total=row.get("programmes_total", 0),
         programmes_events=row.get("programmes_events", 0),
         programmes_pregame=row.get("programmes_pregame", 0),

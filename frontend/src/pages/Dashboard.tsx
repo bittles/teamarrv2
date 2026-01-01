@@ -94,6 +94,7 @@ interface EPGHistoryEntry {
     deleted: number
     skipped: number
     errors: number
+    active: number
   }
   programmes?: {
     total: number
@@ -432,7 +433,7 @@ export function Dashboard() {
                     <TableCell>{entry.extra_metrics?.teams_processed ?? 0}</TableCell>
                     <TableCell>{entry.programmes?.events ?? 0}</TableCell>
                     <TableCell>{(entry.programmes?.pregame ?? 0) + (entry.programmes?.postgame ?? 0) + (entry.programmes?.idle ?? 0)}</TableCell>
-                    <TableCell>{(entry.channels?.created ?? 0) + (entry.channels?.updated ?? 0)}</TableCell>
+                    <TableCell>{entry.channels?.active ?? (entry.channels?.created ?? 0) + (entry.channels?.updated ?? 0)}</TableCell>
                     <TableCell>{formatDuration(entry.duration_ms)}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatBytes(entry.xmltv_size_bytes)}

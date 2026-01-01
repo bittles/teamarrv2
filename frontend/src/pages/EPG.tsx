@@ -664,7 +664,7 @@ export function EPG() {
                     <TableCell>{(run.extra_metrics?.teams_processed as number) ?? 0}</TableCell>
                     <TableCell>{run.programmes?.events ?? 0}</TableCell>
                     <TableCell>{(run.programmes?.pregame ?? 0) + (run.programmes?.postgame ?? 0) + (run.programmes?.idle ?? 0)}</TableCell>
-                    <TableCell>{(run.channels?.created ?? 0) + (run.channels?.updated ?? 0)}</TableCell>
+                    <TableCell>{run.channels?.active ?? (run.channels?.created ?? 0) + (run.channels?.updated ?? 0)}</TableCell>
                     <TableCell>{formatDuration(run.duration_ms)}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatBytes(run.xmltv_size_bytes)}

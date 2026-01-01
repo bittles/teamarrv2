@@ -60,6 +60,7 @@ export interface ProcessingRun {
     deleted: number
     skipped: number
     errors: number
+    active: number
   }
   programmes?: {
     total: number

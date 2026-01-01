@@ -252,6 +252,15 @@ def run_full_generation(
         stats_run.extra_metrics["teams_processed"] = result.teams_processed
         stats_run.extra_metrics["groups_processed"] = result.groups_processed
         stats_run.extra_metrics["file_written"] = result.file_written
+
+        # Count total active managed channels
+        from teamarr.database.channels import get_all_managed_channels
+
+        with db_factory() as conn:
+            active_channels = get_all_managed_channels(conn, include_deleted=False)
+            stats_run.channels_active = len(active_channels)
+            logger.info(f"EPG generation: {len(active_channels)} active managed channels")
+
         stats_run.complete(status="completed")
 
         with db_factory() as conn:
