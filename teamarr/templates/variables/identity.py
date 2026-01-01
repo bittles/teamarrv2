@@ -254,7 +254,23 @@ def extract_league_code(ctx: TemplateContext, game_ctx: GameContext | None) -> s
     name="gracenote_category",
     category=Category.IDENTITY,
     suffix_rules=SuffixRules.BASE_ONLY,
-    description="Gracenote category for EPG (e.g., 'Sports event')",
+    description="Gracenote category for EPG (e.g., 'NFL Football', 'College Basketball')",
 )
 def extract_gracenote_category(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
-    return "Sports event"
+    """Return Gracenote-compatible category.
+
+    Fallback chain:
+        1. gracenote_category from leagues table (curated value)
+        2. Auto-generated: "{display_name} {Sport}" (e.g., 'NFL Football')
+
+    Examples:
+        nfl → NFL Football
+        mens-college-basketball → College Basketball (if curated)
+        eng.1 → English Premier League Soccer
+
+    THREAD-SAFE: Uses in-memory cache, no DB access.
+    """
+    from teamarr.services.league_mappings import get_league_mapping_service
+
+    service = get_league_mapping_service()
+    return service.get_gracenote_category(ctx.team_config.league)

@@ -47,6 +47,10 @@ class LeagueMappingService:
         self._league_ids: dict[str, str] = {}
         # {league_name}: display_name (always)
         self._league_display_names: dict[str, str] = {}
+        # {gracenote_category}: curated value or auto-generated
+        self._gracenote_categories: dict[str, str] = {}
+        # Sport per league (for gracenote_category fallback)
+        self._league_sports: dict[str, str] = {}
         # Fallback from league_cache for discovered leagues
         self._league_cache_names: dict[str, str] = {}
         self._load_all_mappings()
@@ -66,7 +70,7 @@ class LeagueMappingService:
                 """
                 SELECT league_code, provider, provider_league_id,
                        provider_league_name, sport, display_name, logo_url,
-                       league_alias, league_id
+                       league_alias, league_id, gracenote_category
                 FROM leagues
                 WHERE enabled = 1
                 ORDER BY provider, league_code
@@ -108,6 +112,14 @@ class LeagueMappingService:
                 if row["display_name"]:
                     self._league_display_names[league_code_lower] = row["display_name"]
 
+                # Cache gracenote_category
+                if row["gracenote_category"]:
+                    self._gracenote_categories[league_code_lower] = row["gracenote_category"]
+
+                # Cache sport for gracenote_category fallback
+                if row["sport"]:
+                    self._league_sports[league_code_lower] = row["sport"]
+
             # Also load league names from league_cache for fallback
             cursor = conn.execute(
                 """
@@ -138,6 +150,8 @@ class LeagueMappingService:
         self._league_aliases.clear()
         self._league_ids.clear()
         self._league_display_names.clear()
+        self._gracenote_categories.clear()
+        self._league_sports.clear()
         self._league_cache_names.clear()
         self._load_all_mappings()
 
@@ -214,6 +228,37 @@ class LeagueMappingService:
 
         # Final fallback to league_code uppercase
         return league_code.upper()
+
+    def get_gracenote_category(self, league_code: str) -> str:
+        """Get Gracenote-compatible category for {gracenote_category} variable.
+
+        Fallback chain:
+            1. gracenote_category from leagues table (curated value)
+            2. Auto-generated: "{display_name} {Sport}" (e.g., 'NFL Football')
+
+        Thread-safe: uses in-memory cache, no DB access.
+
+        Args:
+            league_code: Raw league code (e.g., 'nfl', 'eng.1')
+
+        Returns:
+            Gracenote category (e.g., 'NFL Football', 'College Basketball')
+        """
+        key = league_code.lower()
+
+        # Try curated gracenote_category
+        if key in self._gracenote_categories:
+            return self._gracenote_categories[key]
+
+        # Auto-generate from display_name + sport
+        display_name = self.get_league_display_name(league_code)
+        sport = self._league_sports.get(key, "")
+
+        if display_name and sport:
+            return f"{display_name} {sport}"
+
+        # Fallback to just display_name
+        return display_name
 
     def get_mapping(self, league_code: str, provider: str) -> LeagueMapping | None:
         """Get mapping for a specific league and provider.
