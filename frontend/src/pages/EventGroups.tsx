@@ -17,7 +17,7 @@ import {
   ArrowUpDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Switch } from "@/components/ui/switch"
@@ -37,8 +37,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Select } from "@/components/ui/select"
+import { FilterSelect } from "@/components/ui/filter-select"
 import {
   useGroups,
   useDeleteGroup,
@@ -146,13 +145,13 @@ export function EventGroups() {
   const [leagueFilter, setLeagueFilter] = useState("")
   const [sportFilter, setSportFilter] = useState("")
   const [templateFilter, setTemplateFilter] = useState<number | "">("")
-  const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all")
+  const [statusFilter, setStatusFilter] = useState<"" | "enabled" | "disabled">("")
 
   const [deleteConfirm, setDeleteConfirm] = useState<EventGroup | null>(null)
   const [showBulkDelete, setShowBulkDelete] = useState(false)
 
   // Column sorting state
-  type SortColumn = "name" | "sport" | "template" | "matched" | "channels" | "status" | null
+  type SortColumn = "name" | "sport" | "template" | "matched" | "status" | null
   type SortDirection = "asc" | "desc"
   const [sortColumn, setSortColumn] = useState<SortColumn>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc")
@@ -302,9 +301,6 @@ export function EventGroups() {
         case "matched":
           cmp = (a.matched_count || 0) - (b.matched_count || 0)
           break
-        case "channels":
-          cmp = (a.channel_count || 0) - (b.channel_count || 0)
-          break
         case "status":
           cmp = (a.enabled ? 1 : 0) - (b.enabled ? 1 : 0)
           break
@@ -343,6 +339,7 @@ export function EventGroups() {
       filteredIncludeRegex: 0,
       filteredExcludeRegex: 0,
       filteredNoMatch: 0,
+      filteredNotEvent: 0,
       eligible: 0,
       matched: 0,
       matchRate: 0,
@@ -352,27 +349,28 @@ export function EventGroups() {
       matchedByGroup: [] as { name: string; count: number; rate: number }[],
     }
 
+    // Sum all groups (parents + children) - each has distinct streams from different M3U accounts
     const groups = data.groups
     const totalStreams = groups.reduce((sum, g) => sum + (g.total_stream_count || 0), 0)
     const filteredIncludeRegex = groups.reduce((sum, g) => sum + (g.filtered_include_regex || 0), 0)
     const filteredExcludeRegex = groups.reduce((sum, g) => sum + (g.filtered_exclude_regex || 0), 0)
-    const filteredNoMatch = groups.reduce((sum, g) => sum + (g.filtered_no_match || 0), 0)
-    const totalFiltered = filteredIncludeRegex + filteredExcludeRegex + filteredNoMatch
+    const filteredNotEvent = groups.reduce((sum, g) => sum + (g.filtered_not_event || 0), 0)
+    // Note: filtered_no_match is NOT a filter reason - it's a match failure (streams passed filters but no event match)
+    const totalFiltered = filteredIncludeRegex + filteredExcludeRegex + filteredNotEvent
     const eligible = groups.reduce((sum, g) => sum + (g.stream_count || 0), 0)
     const matched = groups.reduce((sum, g) => sum + (g.matched_count || 0), 0)
     const matchRate = eligible > 0 ? Math.round((matched / eligible) * 100) : 0
 
-    // Per-group breakdowns (only parent groups)
-    const parentGroups = groups.filter(g => g.parent_group_id === null)
-    const streamsByGroup = parentGroups
+    // Per-group breakdowns for tooltips (all groups, not just parents)
+    const streamsByGroup = groups
       .filter(g => (g.total_stream_count || 0) > 0)
       .map(g => ({ name: g.name, count: g.total_stream_count || 0 }))
       .sort((a, b) => b.count - a.count)
-    const eligibleByGroup = parentGroups
+    const eligibleByGroup = groups
       .filter(g => (g.stream_count || 0) > 0)
       .map(g => ({ name: g.name, count: g.stream_count || 0 }))
       .sort((a, b) => b.count - a.count)
-    const matchedByGroup = parentGroups
+    const matchedByGroup = groups
       .filter(g => (g.stream_count || 0) > 0)
       .map(g => ({
         name: g.name,
@@ -386,7 +384,7 @@ export function EventGroups() {
       totalFiltered,
       filteredIncludeRegex,
       filteredExcludeRegex,
-      filteredNoMatch,
+      filteredNotEvent,
       eligible,
       matched,
       matchRate,
@@ -486,10 +484,10 @@ export function EventGroups() {
     setLeagueFilter("")
     setSportFilter("")
     setTemplateFilter("")
-    setStatusFilter("all")
+    setStatusFilter("")
   }
 
-  const hasActiveFilters = leagueFilter || sportFilter || templateFilter !== "" || statusFilter !== "all"
+  const hasActiveFilters = leagueFilter || sportFilter || templateFilter !== "" || statusFilter !== ""
 
   // Drag-and-drop handlers for AUTO groups
   const handleDragStart = (e: React.DragEvent, groupId: number) => {
@@ -559,32 +557,30 @@ export function EventGroups() {
   }
 
   return (
-    <div className="space-y-3">
-      {/* Header */}
+    <div className="space-y-2">
+      {/* Header - Compact */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Event Groups</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-xl font-bold">Event Groups</h1>
+          <p className="text-sm text-muted-foreground">
             Configure event-based EPG from M3U stream groups
           </p>
         </div>
-        <Button onClick={() => navigate("/event-groups/import")}>
-          <Download className="h-4 w-4 mr-1.5" />
-          Import Groups
+        <Button size="sm" onClick={() => navigate("/event-groups/import")}>
+          <Download className="h-4 w-4 mr-1" />
+          Import
         </Button>
       </div>
 
-      {/* Stats Tiles - V1 Style with Hover Tooltips */}
+      {/* Stats Tiles - V1 Style: Grid with 4 equal columns filling width */}
       {data?.groups && data.groups.length > 0 && (
-        <div>
-          <h2 className="text-sm font-medium text-muted-foreground mb-2">Event Groups Analysis</h2>
-          <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-4 gap-3">
             {/* Total Streams */}
             <div className="group relative">
-              <Card className="p-3 cursor-default hover:border-primary/50 transition-colors">
-                <div className="text-2xl font-bold">{stats.totalStreams}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">Total Streams</div>
-              </Card>
+              <div className="bg-secondary rounded px-3 py-2 cursor-help">
+                <div className="text-xl font-bold">{stats.totalStreams}</div>
+                <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">Streams</div>
+              </div>
               {stats.streamsByGroup.length > 0 && (
                 <div className="absolute left-0 top-full mt-1 z-50 hidden group-hover:block">
                   <Card className="p-3 shadow-lg border min-w-[200px]">
@@ -604,10 +600,10 @@ export function EventGroups() {
 
             {/* Filtered */}
             <div className="group relative">
-              <Card className={`p-3 cursor-default hover:border-primary/50 transition-colors ${stats.totalFiltered > 0 ? 'border-amber-500/30' : ''}`}>
-                <div className="text-2xl font-bold">{stats.totalFiltered}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">Filtered</div>
-              </Card>
+              <div className="bg-secondary rounded px-3 py-2 cursor-help">
+                <div className={`text-xl font-bold ${stats.totalFiltered > 0 ? 'text-amber-500' : ''}`}>{stats.totalFiltered}</div>
+                <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">Filtered</div>
+              </div>
               {stats.totalFiltered > 0 && (
                 <div className="absolute left-0 top-full mt-1 z-50 hidden group-hover:block">
                   <Card className="p-3 shadow-lg border min-w-[200px]">
@@ -625,10 +621,10 @@ export function EventGroups() {
                           <span className="font-medium">{stats.filteredExcludeRegex}</span>
                         </div>
                       )}
-                      {stats.filteredNoMatch > 0 && (
+                      {stats.filteredNotEvent > 0 && (
                         <div className="flex justify-between text-sm">
-                          <span>No match found</span>
-                          <span className="font-medium">{stats.filteredNoMatch}</span>
+                          <span>Placeholders</span>
+                          <span className="font-medium">{stats.filteredNotEvent}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm font-medium pt-1 border-t">
@@ -643,10 +639,10 @@ export function EventGroups() {
 
             {/* Eligible */}
             <div className="group relative">
-              <Card className="p-3 cursor-default hover:border-primary/50 transition-colors">
-                <div className="text-2xl font-bold">{stats.eligible}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">Eligible</div>
-              </Card>
+              <div className="bg-secondary rounded px-3 py-2 cursor-help">
+                <div className="text-xl font-bold">{stats.eligible}</div>
+                <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">Eligible</div>
+              </div>
               {stats.eligibleByGroup.length > 0 && (
                 <div className="absolute left-0 top-full mt-1 z-50 hidden group-hover:block">
                   <Card className="p-3 shadow-lg border min-w-[200px]">
@@ -666,12 +662,12 @@ export function EventGroups() {
 
             {/* Matched */}
             <div className="group relative">
-              <Card className="p-3 cursor-default hover:border-primary/50 transition-colors border-green-500/30">
-                <div className="text-2xl font-bold">{stats.matched}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">
+              <div className="bg-secondary rounded px-3 py-2 cursor-help">
+                <div className="text-xl font-bold text-green-500">{stats.matched}</div>
+                <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">
                   Matched ({stats.matchRate}%)
                 </div>
-              </Card>
+              </div>
               {stats.matchedByGroup.length > 0 && (
                 <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block">
                   <Card className="p-3 shadow-lg border min-w-[220px]">
@@ -688,136 +684,31 @@ export function EventGroups() {
                 </div>
               )}
             </div>
-          </div>
         </div>
       )}
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="py-3">
-          <div className="flex items-center gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Sport</Label>
-              <Select
-                value={sportFilter}
-                onChange={(e) => setSportFilter(e.target.value)}
-                className="w-36"
-              >
-                <option value="">All sports</option>
-                {uniqueSports.map((sport) => (
-                  <option key={sport} value={sport}>
-                    {SPORT_EMOJIS[sport] || "🏆"} {sport.charAt(0).toUpperCase() + sport.slice(1)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">League</Label>
-              <Select
-                value={leagueFilter}
-                onChange={(e) => setLeagueFilter(e.target.value)}
-                className="w-40"
-              >
-                <option value="">All leagues</option>
-                {uniqueLeagues.map((league) => (
-                  <option key={league} value={league}>
-                    {league.toUpperCase()}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Template</Label>
-              <Select
-                value={templateFilter}
-                onChange={(e) => setTemplateFilter(e.target.value ? Number(e.target.value) : "")}
-                className="w-40"
-              >
-                <option value="">All templates</option>
-                <option value="0">Unassigned</option>
-                {templates?.filter(t => t.template_type === "event").map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Status</Label>
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                className="w-28"
-              >
-                <option value="all">All</option>
-                <option value="enabled">Enabled</option>
-                <option value="disabled">Disabled</option>
-              </Select>
-            </div>
-            {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="mt-5">
-                <X className="h-4 w-4 mr-1" />
-                Clear
-              </Button>
-            )}
-            <div className="flex-1" />
-            <div className="text-sm text-muted-foreground mt-5">
-              {sortedGroups.length} of {data?.groups.length ?? 0} groups
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Batch Operations Bar - V1 Style Compact */}
+      <div className="flex items-center justify-between bg-secondary border border-border rounded px-3 py-2">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-medium">Batch Operations</span>
+          <span className="text-muted-foreground">({selectedIds.size} selected)</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm" onClick={() => handleBulkToggle(true)} disabled={selectedIds.size === 0}>
+            Enable
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleBulkToggle(false)} disabled={selectedIds.size === 0}>
+            Disable
+          </Button>
+          <Button variant="destructive" size="sm" onClick={() => setShowBulkDelete(true)} disabled={selectedIds.size === 0}>
+            <Trash2 className="h-3 w-3 mr-1" />
+            Delete
+          </Button>
+        </div>
+      </div>
 
-      {/* Batch Actions Toolbar */}
-      <Card className={selectedIds.size > 0 ? "bg-primary/5 border-primary/20" : "bg-muted/30"}>
-        <CardContent className="py-3">
-          <div className="flex items-center gap-3">
-            <span className={selectedIds.size === 0 ? "text-sm text-muted-foreground" : "text-sm font-medium"}>
-              {selectedIds.size > 0
-                ? `${selectedIds.size} group${selectedIds.size !== 1 ? "s" : ""} selected`
-                : "No groups selected"}
-            </span>
-            <div className="flex-1" />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleBulkToggle(true)}
-              disabled={selectedIds.size === 0}
-            >
-              Enable
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleBulkToggle(false)}
-              disabled={selectedIds.size === 0}
-            >
-              Disable
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setShowBulkDelete(true)}
-              disabled={selectedIds.size === 0}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Delete
-            </Button>
-            {selectedIds.size > 0 && (
-              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Groups Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Groups</CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* Groups Table - No card wrapper for more compact look */}
+      <div className="border border-border rounded-lg overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -832,8 +723,8 @@ export function EventGroups() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-8"></TableHead>
-                  <TableHead className="w-10">
+                  <TableHead className="w-6"></TableHead>
+                  <TableHead className="w-8">
                     <Checkbox
                       checked={selectedIds.size === sortedGroups.length && sortedGroups.length > 0}
                       onCheckedChange={toggleSelectAll}
@@ -847,27 +738,27 @@ export function EventGroups() {
                       Name <SortIcon column="name" />
                     </div>
                   </TableHead>
+                  <TableHead className="w-[70px] text-center">League</TableHead>
                   <TableHead
-                    className="w-16 text-center cursor-pointer hover:bg-muted/50"
+                    className="w-[50px] text-center cursor-pointer hover:bg-muted/50"
                     onClick={() => handleSort("sport")}
                   >
                     <div className="flex items-center justify-center">
                       Sport <SortIcon column="sport" />
                     </div>
                   </TableHead>
-                  <TableHead>Leagues</TableHead>
                   <TableHead
-                    className="cursor-pointer hover:bg-muted/50"
+                    className="w-[100px] cursor-pointer hover:bg-muted/50"
                     onClick={() => handleSort("template")}
                   >
                     <div className="flex items-center">
                       Template <SortIcon column="template" />
                     </div>
                   </TableHead>
-                  <TableHead className="text-center w-20">Ch Start</TableHead>
-                  <TableHead className="text-center w-24">Ch Group</TableHead>
+                  <TableHead className="text-center w-[90px]">Ch Start</TableHead>
+                  <TableHead className="text-center w-[140px]">Ch Group</TableHead>
                   <TableHead
-                    className="text-center cursor-pointer hover:bg-muted/50"
+                    className="w-[75px] text-center cursor-pointer hover:bg-muted/50"
                     onClick={() => handleSort("matched")}
                   >
                     <div className="flex items-center justify-center">
@@ -875,34 +766,94 @@ export function EventGroups() {
                     </div>
                   </TableHead>
                   <TableHead
-                    className="text-center cursor-pointer hover:bg-muted/50"
-                    onClick={() => handleSort("channels")}
-                  >
-                    <div className="flex items-center justify-center">
-                      Channels <SortIcon column="channels" />
-                    </div>
-                  </TableHead>
-                  <TableHead
-                    className="w-16 cursor-pointer hover:bg-muted/50"
+                    className="w-[50px] cursor-pointer hover:bg-muted/50"
                     onClick={() => handleSort("status")}
                   >
                     <div className="flex items-center">
                       Status <SortIcon column="status" />
                     </div>
                   </TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[70px] text-right">Actions</TableHead>
+                </TableRow>
+                {/* Filter row - styled like V1 */}
+                <TableRow className="border-b-2 border-border">
+                  <TableHead className="py-0.5 pb-1.5"></TableHead>
+                  <TableHead className="py-0.5 pb-1.5"></TableHead>
+                  <TableHead className="py-0.5 pb-1.5"></TableHead>
+                  <TableHead className="py-0.5 pb-1.5">
+                    <FilterSelect
+                      value={leagueFilter}
+                      onChange={setLeagueFilter}
+                      options={[
+                        { value: "", label: "All" },
+                        ...uniqueLeagues.map((league) => ({
+                          value: league,
+                          label: league.toUpperCase(),
+                        })),
+                      ]}
+                    />
+                  </TableHead>
+                  <TableHead className="py-0.5 pb-1.5">
+                    <FilterSelect
+                      value={sportFilter}
+                      onChange={setSportFilter}
+                      options={[
+                        { value: "", label: "All" },
+                        ...uniqueSports.map((sport) => ({
+                          value: sport,
+                          label: sport.charAt(0).toUpperCase() + sport.slice(1),
+                        })),
+                      ]}
+                    />
+                  </TableHead>
+                  <TableHead className="py-0.5 pb-1.5">
+                    <FilterSelect
+                      value={templateFilter === "" ? "" : String(templateFilter)}
+                      onChange={(v) => setTemplateFilter(v ? Number(v) : "")}
+                      options={[
+                        { value: "", label: "All" },
+                        { value: "0", label: "Unassigned" },
+                        ...(templates?.filter(t => t.template_type === "event").map((template) => ({
+                          value: String(template.id),
+                          label: template.name,
+                        })) || []),
+                      ]}
+                    />
+                  </TableHead>
+                  <TableHead className="py-0.5 pb-1.5"></TableHead>
+                  <TableHead className="py-0.5 pb-1.5"></TableHead>
+                  <TableHead className="py-0.5 pb-1.5"></TableHead>
+                  <TableHead className="py-0.5 pb-1.5">
+                    <FilterSelect
+                      value={statusFilter}
+                      onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+                      options={[
+                        { value: "", label: "All" },
+                        { value: "enabled", label: "Active" },
+                        { value: "disabled", label: "Inactive" },
+                      ]}
+                    />
+                  </TableHead>
+                  <TableHead className="py-0.5 pb-1.5 text-right">
+                    {hasActiveFilters && (
+                      <Button variant="ghost" size="sm" onClick={clearFilters} className="h-5 px-1.5">
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {/* AUTO Section Header */}
+                {/* AUTO Section Header - V1 style */}
                 {autoGroups.length > 0 && (
-                  <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableCell colSpan={12} className="py-1.5 text-xs font-medium text-muted-foreground">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">AUTO</Badge>
-                        <span>Channel Assignment</span>
-                        <span className="text-muted-foreground/60">• Drag to reorder priority</span>
-                      </div>
+                  <TableRow className="bg-secondary/50 hover:bg-secondary/50 border-b-2 border-emerald-500/40">
+                    <TableCell colSpan={11} className="py-2 px-4">
+                      <span className="text-xs font-semibold text-emerald-500 uppercase tracking-wide">
+                        AUTO Channel Assignment
+                      </span>
+                      <span className="text-xs text-emerald-500/60 ml-2 italic">
+                        Drag to reorder priority
+                      </span>
                     </TableCell>
                   </TableRow>
                 )}
@@ -922,19 +873,23 @@ export function EventGroups() {
                   return (
                     <React.Fragment key={group.id}>
                       {isFirstManual && manualGroups.length > 0 && (
-                        <TableRow className="bg-muted/30 hover:bg-muted/30">
-                          <TableCell colSpan={12} className="py-1.5 text-xs font-medium text-muted-foreground">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="secondary" className="text-xs">MANUAL</Badge>
-                              <span>Channel Assignment</span>
-                            </div>
+                        <TableRow className="bg-secondary/50 hover:bg-secondary/50 border-b-2 border-border">
+                          <TableCell colSpan={11} className="py-2 px-4">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                              MANUAL Channel Assignment
+                            </span>
+                            <span className="text-xs text-muted-foreground/60 ml-2 italic">
+                              Fixed channel start numbers
+                            </span>
                           </TableCell>
                         </TableRow>
                       )}
                       <TableRow
-                        className={`${isChild ? "bg-purple-500/5 hover:bg-purple-500/10" : ""} ${
-                          draggedGroupId === group.id ? "opacity-50" : ""
-                        }`}
+                        className={`
+                          ${isChild ? "bg-purple-500/5 hover:bg-purple-500/10" : ""}
+                          ${isAuto && !isChild ? "border-l-3 border-l-transparent hover:border-l-emerald-500 group/row" : ""}
+                          ${draggedGroupId === group.id ? "opacity-50" : ""}
+                        `}
                         draggable={isAuto && !isChild}
                         onDragStart={(e) => isAuto && !isChild && handleDragStart(e, group.id)}
                         onDragOver={handleDragOver}
@@ -943,7 +898,7 @@ export function EventGroups() {
                       >
                         <TableCell className="w-8 p-0">
                           {isAuto && !isChild ? (
-                            <div className="flex items-center justify-center h-full cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground">
+                            <div className="flex items-center justify-center h-full cursor-grab active:cursor-grabbing text-muted-foreground group-hover/row:text-emerald-500">
                               <GripVertical className="h-4 w-4" />
                             </div>
                           ) : null}
@@ -959,6 +914,16 @@ export function EventGroups() {
                             <div className="flex items-center gap-2 pl-4">
                               <span className="text-purple-400 font-bold">└</span>
                               <span>{group.name}</span>
+                              {/* Account/Provider badge for child */}
+                              {group.m3u_account_name && (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs"
+                                  title={`M3U Account: ${group.m3u_account_name}`}
+                                >
+                                  {group.m3u_account_name}
+                                </Badge>
+                              )}
                               <Badge
                                 variant="outline"
                                 className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs italic"
@@ -1005,6 +970,31 @@ export function EventGroups() {
                             </div>
                           )}
                         </TableCell>
+                        {/* League Column */}
+                        <TableCell className="text-center">
+                          <div className="flex flex-wrap gap-1 justify-center">
+                            {group.leagues.slice(0, 2).map((league) => (
+                              leagueLogos[league] ? (
+                                <img
+                                  key={league}
+                                  src={leagueLogos[league]}
+                                  alt={league.toUpperCase()}
+                                  title={league.toUpperCase()}
+                                  className="h-6 w-auto object-contain"
+                                />
+                              ) : (
+                                <Badge key={league} variant="secondary" className="text-[0.7rem] px-1.5">
+                                  {league.toUpperCase()}
+                                </Badge>
+                              )
+                            ))}
+                            {group.leagues.length > 2 && (
+                              <Badge variant="outline" className="text-[0.7rem]">
+                                +{group.leagues.length - 2}
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         {/* Sport Column */}
                         <TableCell className="text-center">
                           {(() => {
@@ -1032,30 +1022,6 @@ export function EventGroups() {
                           })()}
                         </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {group.leagues.slice(0, 3).map((league) => (
-                          leagueLogos[league] ? (
-                            <img
-                              key={league}
-                              src={leagueLogos[league]}
-                              alt={league.toUpperCase()}
-                              title={league.toUpperCase()}
-                              className="h-6 w-auto object-contain"
-                            />
-                          ) : (
-                            <Badge key={league} variant="secondary">
-                              {league.toUpperCase()}
-                            </Badge>
-                          )
-                        ))}
-                        {group.leagues.length > 3 && (
-                          <Badge variant="outline">
-                            +{group.leagues.length - 3}
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
                       {isChild ? (
                         <Badge
                           variant="outline"
@@ -1064,12 +1030,12 @@ export function EventGroups() {
                         >
                           ↳
                         </Badge>
+                      ) : group.template_id ? (
+                        <Badge variant="success">
+                          {templates?.find((t) => t.id === group.template_id)?.name ?? `#${group.template_id}`}
+                        </Badge>
                       ) : (
-                        <span className="text-muted-foreground text-sm">
-                          {group.template_id
-                            ? templates?.find((t) => t.id === group.template_id)?.name ?? `#${group.template_id}`
-                            : "—"}
-                        </span>
+                        <Badge variant="warning">Default</Badge>
                       )}
                     </TableCell>
                     {/* Ch Start Column */}
@@ -1114,17 +1080,30 @@ export function EventGroups() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    {/* Matched Column */}
+                    {/* Matched Column with Progress Bar */}
                     <TableCell className="text-center">
-                      {group.last_refresh ? (
-                        <span title={`Last: ${new Date(group.last_refresh).toLocaleString()}`}>
-                          {group.matched_count}/{group.stream_count}
-                        </span>
+                      {group.stream_count && group.stream_count > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5" title={`Last: ${group.last_refresh ? new Date(group.last_refresh).toLocaleString() : 'Never'}`}>
+                          <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                (group.matched_count || 0) / group.stream_count >= 0.8
+                                  ? 'bg-green-500'
+                                  : (group.matched_count || 0) / group.stream_count >= 0.5
+                                    ? 'bg-yellow-500'
+                                    : 'bg-red-500'
+                              }`}
+                              style={{ width: `${Math.round(((group.matched_count || 0) / group.stream_count) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-[0.65rem]">
+                            {group.matched_count}/{group.stream_count} ({Math.round(((group.matched_count || 0) / group.stream_count) * 100)}%)
+                          </span>
+                        </div>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground text-xs italic">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">{group.channel_count ?? 0}</TableCell>
                     <TableCell>
                       <Switch
                         checked={group.enabled}
@@ -1176,8 +1155,7 @@ export function EventGroups() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Delete Confirmation Dialog */}
       <Dialog
