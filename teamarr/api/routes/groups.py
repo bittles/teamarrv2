@@ -48,6 +48,10 @@ class GroupCreate(BaseModel):
     stream_exclude_regex_enabled: bool = False
     custom_regex_teams: str | None = None
     custom_regex_teams_enabled: bool = False
+    custom_regex_date: str | None = None
+    custom_regex_date_enabled: bool = False
+    custom_regex_time: str | None = None
+    custom_regex_time_enabled: bool = False
     skip_builtin_filter: bool = False
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str = "time"
@@ -83,6 +87,10 @@ class GroupUpdate(BaseModel):
     stream_exclude_regex_enabled: bool | None = None
     custom_regex_teams: str | None = None
     custom_regex_teams_enabled: bool | None = None
+    custom_regex_date: str | None = None
+    custom_regex_date_enabled: bool | None = None
+    custom_regex_time: str | None = None
+    custom_regex_time_enabled: bool | None = None
     skip_builtin_filter: bool | None = None
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str | None = None
@@ -103,6 +111,8 @@ class GroupUpdate(BaseModel):
     clear_stream_include_regex: bool = False
     clear_stream_exclude_regex: bool = False
     clear_custom_regex_teams: bool = False
+    clear_custom_regex_date: bool = False
+    clear_custom_regex_time: bool = False
 
 
 class GroupResponse(BaseModel):
@@ -134,6 +144,10 @@ class GroupResponse(BaseModel):
     stream_exclude_regex_enabled: bool = False
     custom_regex_teams: str | None = None
     custom_regex_teams_enabled: bool = False
+    custom_regex_date: str | None = None
+    custom_regex_date_enabled: bool = False
+    custom_regex_time: str | None = None
+    custom_regex_time_enabled: bool = False
     skip_builtin_filter: bool = False
     # Processing stats
     last_refresh: str | None = None
@@ -143,6 +157,7 @@ class GroupResponse(BaseModel):
     filtered_include_regex: int = 0
     filtered_exclude_regex: int = 0
     filtered_no_match: int = 0
+    filtered_not_event: int = 0
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str = "time"
     overlap_handling: str = "add_stream"
@@ -303,6 +318,10 @@ def list_groups(
                 stream_exclude_regex_enabled=g.stream_exclude_regex_enabled,
                 custom_regex_teams=g.custom_regex_teams,
                 custom_regex_teams_enabled=g.custom_regex_teams_enabled,
+                custom_regex_date=g.custom_regex_date,
+                custom_regex_date_enabled=g.custom_regex_date_enabled,
+                custom_regex_time=g.custom_regex_time,
+                custom_regex_time_enabled=g.custom_regex_time_enabled,
                 skip_builtin_filter=g.skip_builtin_filter,
                 last_refresh=g.last_refresh.isoformat() if g.last_refresh else None,
                 stream_count=g.stream_count,
@@ -310,6 +329,7 @@ def list_groups(
                 filtered_include_regex=g.filtered_include_regex,
                 filtered_exclude_regex=g.filtered_exclude_regex,
                 filtered_no_match=g.filtered_no_match,
+                filtered_not_event=g.filtered_not_event,
                 channel_sort_order=g.channel_sort_order,
                 overlap_handling=g.overlap_handling,
                 enabled=g.enabled,
@@ -372,6 +392,10 @@ def create_group(request: GroupCreate):
             stream_exclude_regex_enabled=request.stream_exclude_regex_enabled,
             custom_regex_teams=request.custom_regex_teams,
             custom_regex_teams_enabled=request.custom_regex_teams_enabled,
+            custom_regex_date=request.custom_regex_date,
+            custom_regex_date_enabled=request.custom_regex_date_enabled,
+            custom_regex_time=request.custom_regex_time,
+            custom_regex_time_enabled=request.custom_regex_time_enabled,
             skip_builtin_filter=request.skip_builtin_filter,
             channel_sort_order=request.channel_sort_order,
             overlap_handling=request.overlap_handling,
@@ -406,6 +430,10 @@ def create_group(request: GroupCreate):
         stream_exclude_regex_enabled=group.stream_exclude_regex_enabled,
         custom_regex_teams=group.custom_regex_teams,
         custom_regex_teams_enabled=group.custom_regex_teams_enabled,
+        custom_regex_date=group.custom_regex_date,
+        custom_regex_date_enabled=group.custom_regex_date_enabled,
+        custom_regex_time=group.custom_regex_time,
+        custom_regex_time_enabled=group.custom_regex_time_enabled,
         skip_builtin_filter=group.skip_builtin_filter,
         last_refresh=group.last_refresh.isoformat() if group.last_refresh else None,
         stream_count=group.stream_count,
@@ -413,6 +441,7 @@ def create_group(request: GroupCreate):
         filtered_include_regex=group.filtered_include_regex,
         filtered_exclude_regex=group.filtered_exclude_regex,
         filtered_no_match=group.filtered_no_match,
+        filtered_not_event=group.filtered_not_event,
         channel_sort_order=group.channel_sort_order,
         overlap_handling=group.overlap_handling,
         enabled=group.enabled,
@@ -462,6 +491,10 @@ def get_group_by_id(group_id: int):
         stream_exclude_regex_enabled=group.stream_exclude_regex_enabled,
         custom_regex_teams=group.custom_regex_teams,
         custom_regex_teams_enabled=group.custom_regex_teams_enabled,
+        custom_regex_date=group.custom_regex_date,
+        custom_regex_date_enabled=group.custom_regex_date_enabled,
+        custom_regex_time=group.custom_regex_time,
+        custom_regex_time_enabled=group.custom_regex_time_enabled,
         skip_builtin_filter=group.skip_builtin_filter,
         last_refresh=group.last_refresh.isoformat() if group.last_refresh else None,
         stream_count=group.stream_count,
@@ -469,6 +502,7 @@ def get_group_by_id(group_id: int):
         filtered_include_regex=group.filtered_include_regex,
         filtered_exclude_regex=group.filtered_exclude_regex,
         filtered_no_match=group.filtered_no_match,
+        filtered_not_event=group.filtered_not_event,
         channel_sort_order=group.channel_sort_order,
         overlap_handling=group.overlap_handling,
         enabled=group.enabled,
@@ -541,6 +575,10 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
             stream_exclude_regex_enabled=request.stream_exclude_regex_enabled,
             custom_regex_teams=request.custom_regex_teams,
             custom_regex_teams_enabled=request.custom_regex_teams_enabled,
+            custom_regex_date=request.custom_regex_date,
+            custom_regex_date_enabled=request.custom_regex_date_enabled,
+            custom_regex_time=request.custom_regex_time,
+            custom_regex_time_enabled=request.custom_regex_time_enabled,
             skip_builtin_filter=request.skip_builtin_filter,
             channel_sort_order=request.channel_sort_order,
             overlap_handling=request.overlap_handling,
@@ -558,6 +596,8 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
             clear_stream_include_regex=request.clear_stream_include_regex,
             clear_stream_exclude_regex=request.clear_stream_exclude_regex,
             clear_custom_regex_teams=request.clear_custom_regex_teams,
+            clear_custom_regex_date=request.clear_custom_regex_date,
+            clear_custom_regex_time=request.clear_custom_regex_time,
         )
 
         group = get_group(conn, group_id)
@@ -589,6 +629,10 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
         stream_exclude_regex_enabled=group.stream_exclude_regex_enabled,
         custom_regex_teams=group.custom_regex_teams,
         custom_regex_teams_enabled=group.custom_regex_teams_enabled,
+        custom_regex_date=group.custom_regex_date,
+        custom_regex_date_enabled=group.custom_regex_date_enabled,
+        custom_regex_time=group.custom_regex_time,
+        custom_regex_time_enabled=group.custom_regex_time_enabled,
         skip_builtin_filter=group.skip_builtin_filter,
         last_refresh=group.last_refresh.isoformat() if group.last_refresh else None,
         stream_count=group.stream_count,
@@ -596,6 +640,7 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
         filtered_include_regex=group.filtered_include_regex,
         filtered_exclude_regex=group.filtered_exclude_regex,
         filtered_no_match=group.filtered_no_match,
+        filtered_not_event=group.filtered_not_event,
         channel_sort_order=group.channel_sort_order,
         overlap_handling=group.overlap_handling,
         enabled=group.enabled,

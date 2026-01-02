@@ -321,12 +321,17 @@ CREATE TABLE IF NOT EXISTS event_epg_groups (
     stream_exclude_regex_enabled BOOLEAN DEFAULT 0,
     custom_regex_teams TEXT,                 -- Custom pattern to extract team names
     custom_regex_teams_enabled BOOLEAN DEFAULT 0,
+    custom_regex_date TEXT,                  -- Custom pattern to extract date
+    custom_regex_date_enabled BOOLEAN DEFAULT 0,
+    custom_regex_time TEXT,                  -- Custom pattern to extract time
+    custom_regex_time_enabled BOOLEAN DEFAULT 0,
     skip_builtin_filter BOOLEAN DEFAULT 0,   -- Skip built-in team name extraction
 
     -- Filtering Stats (updated by EPG generation)
     filtered_include_regex INTEGER DEFAULT 0,   -- Streams filtered by include regex
     filtered_exclude_regex INTEGER DEFAULT 0,   -- Streams filtered by exclude regex
     filtered_no_match INTEGER DEFAULT 0,        -- Streams with no event match
+    filtered_not_event INTEGER DEFAULT 0,       -- Streams that don't look like events (placeholders)
 
     -- Multi-Sport Enhancements (Phase 3)
     channel_sort_order TEXT DEFAULT 'time'

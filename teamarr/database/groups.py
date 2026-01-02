@@ -43,11 +43,16 @@ class EventEPGGroup:
     stream_exclude_regex_enabled: bool = False
     custom_regex_teams: str | None = None
     custom_regex_teams_enabled: bool = False
+    custom_regex_date: str | None = None
+    custom_regex_date_enabled: bool = False
+    custom_regex_time: str | None = None
+    custom_regex_time_enabled: bool = False
     skip_builtin_filter: bool = False
     # Filtering stats
     filtered_include_regex: int = 0
     filtered_exclude_regex: int = 0
     filtered_no_match: int = 0
+    filtered_not_event: int = 0  # Streams that don't look like events (placeholders)
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str = "time"
     overlap_handling: str = "add_stream"
@@ -117,11 +122,16 @@ def _row_to_group(row) -> EventEPGGroup:
         stream_exclude_regex_enabled=bool(row["stream_exclude_regex_enabled"]),
         custom_regex_teams=row["custom_regex_teams"],
         custom_regex_teams_enabled=bool(row["custom_regex_teams_enabled"]),
+        custom_regex_date=row["custom_regex_date"] if "custom_regex_date" in row.keys() else None,
+        custom_regex_date_enabled=bool(row["custom_regex_date_enabled"]) if "custom_regex_date_enabled" in row.keys() else False,
+        custom_regex_time=row["custom_regex_time"] if "custom_regex_time" in row.keys() else None,
+        custom_regex_time_enabled=bool(row["custom_regex_time_enabled"]) if "custom_regex_time_enabled" in row.keys() else False,
         skip_builtin_filter=bool(row["skip_builtin_filter"]),
         # Filtering stats
         filtered_include_regex=row["filtered_include_regex"] or 0,
         filtered_exclude_regex=row["filtered_exclude_regex"] or 0,
         filtered_no_match=row["filtered_no_match"] or 0,
+        filtered_not_event=row["filtered_not_event"] if "filtered_not_event" in row.keys() else 0,
         # Multi-sport enhancements
         channel_sort_order=row["channel_sort_order"] or "time",
         overlap_handling=row["overlap_handling"] or "add_stream",
@@ -241,6 +251,10 @@ def create_group(
     stream_exclude_regex_enabled: bool = False,
     custom_regex_teams: str | None = None,
     custom_regex_teams_enabled: bool = False,
+    custom_regex_date: str | None = None,
+    custom_regex_date_enabled: bool = False,
+    custom_regex_time: str | None = None,
+    custom_regex_time_enabled: bool = False,
     skip_builtin_filter: bool = False,
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str = "time",
@@ -295,8 +309,10 @@ def create_group(
             stream_include_regex, stream_include_regex_enabled,
             stream_exclude_regex, stream_exclude_regex_enabled,
             custom_regex_teams, custom_regex_teams_enabled,
+            custom_regex_date, custom_regex_date_enabled,
+            custom_regex_time, custom_regex_time_enabled,
             skip_builtin_filter, channel_sort_order, overlap_handling, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             name,
             json.dumps(leagues),
@@ -322,6 +338,10 @@ def create_group(
             int(stream_exclude_regex_enabled),
             custom_regex_teams,
             int(custom_regex_teams_enabled),
+            custom_regex_date,
+            int(custom_regex_date_enabled),
+            custom_regex_time,
+            int(custom_regex_time_enabled),
             int(skip_builtin_filter),
             channel_sort_order,
             overlap_handling,
@@ -364,6 +384,10 @@ def update_group(
     stream_exclude_regex_enabled: bool | None = None,
     custom_regex_teams: str | None = None,
     custom_regex_teams_enabled: bool | None = None,
+    custom_regex_date: str | None = None,
+    custom_regex_date_enabled: bool | None = None,
+    custom_regex_time: str | None = None,
+    custom_regex_time_enabled: bool | None = None,
     skip_builtin_filter: bool | None = None,
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str | None = None,
@@ -383,6 +407,8 @@ def update_group(
     clear_stream_include_regex: bool = False,
     clear_stream_exclude_regex: bool = False,
     clear_custom_regex_teams: bool = False,
+    clear_custom_regex_date: bool = False,
+    clear_custom_regex_time: bool = False,
 ) -> bool:
     """Update an event EPG group.
 
@@ -524,6 +550,26 @@ def update_group(
         updates.append("custom_regex_teams_enabled = ?")
         values.append(int(custom_regex_teams_enabled))
 
+    if custom_regex_date is not None:
+        updates.append("custom_regex_date = ?")
+        values.append(custom_regex_date)
+    elif clear_custom_regex_date:
+        updates.append("custom_regex_date = NULL")
+
+    if custom_regex_date_enabled is not None:
+        updates.append("custom_regex_date_enabled = ?")
+        values.append(int(custom_regex_date_enabled))
+
+    if custom_regex_time is not None:
+        updates.append("custom_regex_time = ?")
+        values.append(custom_regex_time)
+    elif clear_custom_regex_time:
+        updates.append("custom_regex_time = NULL")
+
+    if custom_regex_time_enabled is not None:
+        updates.append("custom_regex_time_enabled = ?")
+        values.append(int(custom_regex_time_enabled))
+
     if skip_builtin_filter is not None:
         updates.append("skip_builtin_filter = ?")
         values.append(int(skip_builtin_filter))
@@ -575,6 +621,7 @@ def update_group_stats(
     filtered_include_regex: int = 0,
     filtered_exclude_regex: int = 0,
     filtered_no_match: int = 0,
+    filtered_not_event: int = 0,
     total_stream_count: int | None = None,
 ) -> bool:
     """Update processing stats for a group after EPG generation.
@@ -587,6 +634,7 @@ def update_group_stats(
         filtered_include_regex: Streams filtered by include regex
         filtered_exclude_regex: Streams filtered by exclude regex
         filtered_no_match: Streams with no event match
+        filtered_not_event: Streams that don't look like events (placeholders)
         total_stream_count: Total streams fetched (before filtering) for range reservation
 
     Returns:
@@ -601,9 +649,10 @@ def update_group_stats(
                    filtered_include_regex = ?,
                    filtered_exclude_regex = ?,
                    filtered_no_match = ?,
+                   filtered_not_event = ?,
                    total_stream_count = ?
                WHERE id = ?""",
-            (stream_count, matched_count, filtered_include_regex, filtered_exclude_regex, filtered_no_match, total_stream_count, group_id),
+            (stream_count, matched_count, filtered_include_regex, filtered_exclude_regex, filtered_no_match, filtered_not_event, total_stream_count, group_id),
         )
     else:
         cursor = conn.execute(
@@ -613,9 +662,10 @@ def update_group_stats(
                    matched_count = ?,
                    filtered_include_regex = ?,
                    filtered_exclude_regex = ?,
-                   filtered_no_match = ?
+                   filtered_no_match = ?,
+                   filtered_not_event = ?
                WHERE id = ?""",
-            (stream_count, matched_count, filtered_include_regex, filtered_exclude_regex, filtered_no_match, group_id),
+            (stream_count, matched_count, filtered_include_regex, filtered_exclude_regex, filtered_no_match, filtered_not_event, group_id),
         )
     return cursor.rowcount > 0
 

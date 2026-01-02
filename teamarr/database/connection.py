@@ -284,6 +284,10 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     - 2: Initial V2 schema
     - 3: Teams consolidated (league -> primary_league + leagues array)
     - 4: Added eng.2 (Championship), eng.3 (League One), nrl leagues; fixed NRL logo
+    - 5: Renamed league_id_alias -> league_id
+    - 6: Added league_alias column, fixed managed_channels UNIQUE constraint
+    - 7: Added gracenote_category column
+    - 8: Added custom_regex_date/time columns to event_epg_groups
     """
     import logging
 
@@ -387,6 +391,16 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE settings SET schema_version = 7 WHERE id = 1")
         logger.info("Schema upgraded to version 7 (gracenote_category)")
         current_version = 7
+
+    # Version 8: Add custom_regex_date/time columns to event_epg_groups
+    if current_version < 8:
+        _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_date", "TEXT")
+        _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_date_enabled", "BOOLEAN DEFAULT 0")
+        _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_time", "TEXT")
+        _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_time_enabled", "BOOLEAN DEFAULT 0")
+        conn.execute("UPDATE settings SET schema_version = 8 WHERE id = 1")
+        logger.info("Schema upgraded to version 8 (custom_regex_date/time)")
+        current_version = 8
 
 
 def _migrate_teams_to_leagues_array(conn: sqlite3.Connection) -> bool:
