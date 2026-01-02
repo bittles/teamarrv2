@@ -173,6 +173,9 @@ class ChannelReconciler:
             result.completed_at = datetime.now()
             return result
 
+        # Clear channel cache to ensure fresh data from Dispatcharr
+        self._channel_manager.clear_cache()
+
         try:
             with self._db_factory() as conn:
                 # Step 1: Detect orphans (Teamarr records without Dispatcharr channels)

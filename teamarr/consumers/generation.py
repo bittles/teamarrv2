@@ -5,12 +5,17 @@ Both the streaming API endpoint and the background scheduler call this.
 """
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+# Global lock to prevent concurrent EPG generation runs
+_generation_lock = threading.Lock()
+_generation_running = False
 
 
 @dataclass
@@ -82,6 +87,26 @@ def run_full_generation(
     Returns:
         GenerationResult with all stats and sub-task results
     """
+    global _generation_running
+
+    # Prevent concurrent generation runs
+    if not _generation_lock.acquire(blocking=False):
+        logger.warning("EPG generation already in progress, skipping duplicate run")
+        result = GenerationResult()
+        result.success = False
+        result.error = "Generation already in progress"
+        return result
+
+    if _generation_running:
+        _generation_lock.release()
+        logger.warning("EPG generation already in progress (flag check), skipping")
+        result = GenerationResult()
+        result.success = False
+        result.error = "Generation already in progress"
+        return result
+
+    _generation_running = True
+
     from teamarr.consumers import (
         create_lifecycle_service,
         create_reconciler,
@@ -286,6 +311,11 @@ def run_full_generation(
                 save_run(conn, stats_run)
         except Exception:
             pass
+
+    finally:
+        # Always release the lock
+        _generation_running = False
+        _generation_lock.release()
 
     return result
 
