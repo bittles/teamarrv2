@@ -101,14 +101,15 @@ def get_dashboard_stats():
             {"league": league, "logo_url": None, "count": 1} for league in sorted(event_leagues_set)
         ]
 
-        # Get actual match stats from latest completed run
+        # Get actual match stats from latest completed full_epg run
+        # (not event_group runs which are per-group and have 0 programmes)
         latest_run = conn.execute("""
             SELECT id, streams_matched, streams_unmatched, streams_fetched, streams_cached,
                    programmes_total, programmes_events, programmes_pregame,
                    programmes_postgame, programmes_idle,
                    extra_metrics
             FROM processing_runs
-            WHERE status = 'completed'
+            WHERE status = 'completed' AND run_type = 'full_epg'
             ORDER BY id DESC
             LIMIT 1
         """).fetchone()

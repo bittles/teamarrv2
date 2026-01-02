@@ -281,7 +281,35 @@ def get_recent_runs(
     group_id: int | None = None,
     status: RunStatus | None = None,
 ) -> list[ProcessingRun]:
-    """Get recent processing runs with optional filters."""
+    """Get recent processing runs with optional filters.
+
+    For full_epg runs, deduplicates runs that started in the same minute
+    (handles case of multiple processes running in parallel).
+    """
+    # For full_epg runs, deduplicate by minute (take highest ID per minute)
+    if run_type == "full_epg":
+        query = """
+            SELECT * FROM processing_runs
+            WHERE run_type = 'full_epg'
+            AND id IN (
+                SELECT MAX(id) FROM processing_runs
+                WHERE run_type = 'full_epg'
+                GROUP BY strftime('%Y-%m-%d %H:%M', started_at)
+            )
+        """
+        params = []
+
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        return [_row_to_run(dict(row)) for row in rows]
+
+    # Standard query for other run types
     query = "SELECT * FROM processing_runs WHERE 1=1"
     params = []
 
