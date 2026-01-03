@@ -242,9 +242,7 @@ class ESPNClient:
         url = f"{ESPN_BASE_URL}/{sport}/{espn_league}/summary"
         return self._request(url, {"event": event_id})
 
-    def get_teams(
-        self, league: str, sport_league: tuple[str, str] | None = None
-    ) -> dict | None:
+    def get_teams(self, league: str, sport_league: tuple[str, str] | None = None) -> dict | None:
         """Fetch all teams for a league.
 
         Args:

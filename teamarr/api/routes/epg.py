@@ -177,8 +177,12 @@ def generate_epg_stream():
 
                 # Progress callback that updates status and queues for SSE
                 def progress_callback(
-                    phase: str, percent: int, message: str,
-                    current: int, total: int, item_name: str,
+                    phase: str,
+                    percent: int,
+                    message: str,
+                    current: int,
+                    total: int,
+                    item_name: str,
                 ):
                     update_status(
                         status="progress",
@@ -199,14 +203,16 @@ def generate_epg_stream():
                 )
 
                 if result.success:
-                    complete_generation({
-                        "success": True,
-                        "programmes_count": result.programmes_total,
-                        "teams_processed": result.teams_processed,
-                        "groups_processed": result.groups_processed,
-                        "duration_seconds": result.duration_seconds,
-                        "run_id": result.run_id,
-                    })
+                    complete_generation(
+                        {
+                            "success": True,
+                            "programmes_count": result.programmes_total,
+                            "teams_processed": result.teams_processed,
+                            "groups_processed": result.groups_processed,
+                            "duration_seconds": result.duration_seconds,
+                            "run_id": result.run_id,
+                        }
+                    )
                 else:
                     fail_generation(result.error or "Unknown error")
 
@@ -445,9 +451,7 @@ def match_streams(
 def _get_combined_xmltv() -> str:
     """Get combined XMLTV content from all teams."""
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT xmltv_content FROM team_epg_xmltv ORDER BY team_id"
-        ).fetchall()
+        rows = conn.execute("SELECT xmltv_content FROM team_epg_xmltv ORDER BY team_id").fetchall()
 
     if not rows:
         return ""
@@ -718,9 +722,7 @@ def get_failed_matches(
     from teamarr.database.stats import get_failed_matches as db_get_failed
 
     with get_db() as conn:
-        failures = db_get_failed(
-            conn, run_id=run_id, group_id=group_id, reason=reason, limit=limit
-        )
+        failures = db_get_failed(conn, run_id=run_id, group_id=group_id, reason=reason, limit=limit)
 
     return {
         "count": len(failures),
@@ -803,9 +805,7 @@ def correct_stream_match(
         cached_data=cached_data,
     )
 
-    fingerprint = compute_fingerprint(
-        request.group_id, request.stream_id, request.stream_name
-    )
+    fingerprint = compute_fingerprint(request.group_id, request.stream_id, request.stream_name)
 
     return MatchCorrectionResponse(
         success=success,

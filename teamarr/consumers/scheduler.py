@@ -167,7 +167,9 @@ class CronScheduler:
             self._next_run = cron.get_next(datetime)
 
             wait_seconds = (self._next_run - datetime.now()).total_seconds()
-            logger.info(f"Next scheduled run at {self._next_run.strftime('%Y-%m-%d %H:%M:%S')} ({wait_seconds:.0f}s)")
+            logger.info(
+                f"Next scheduled run at {self._next_run.strftime('%Y-%m-%d %H:%M:%S')} ({wait_seconds:.0f}s)"
+            )
 
             # Wait until next run time (checking stop event every second)
             while wait_seconds > 0 and not self._stop_event.is_set():

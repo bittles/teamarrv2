@@ -3,9 +3,8 @@
 Query functions to fetch settings from the database.
 """
 
-from sqlite3 import Connection
-
 import json
+from sqlite3 import Connection
 
 from .types import (
     AllSettings,
@@ -29,7 +28,9 @@ def _build_display_settings(row) -> DisplaySettings:
     d = _DISPLAY_DEFAULTS
     return DisplaySettings(
         time_format=row["time_format"] or d.time_format,
-        show_timezone=bool(row["show_timezone"]) if row["show_timezone"] is not None else d.show_timezone,
+        show_timezone=bool(row["show_timezone"])
+        if row["show_timezone"] is not None
+        else d.show_timezone,
         channel_id_format=row["channel_id_format"] or d.channel_id_format,
         xmltv_generator_name=row["xmltv_generator_name"] or d.xmltv_generator_name,
         xmltv_generator_url=row["xmltv_generator_url"] or d.xmltv_generator_url,

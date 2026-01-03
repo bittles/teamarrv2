@@ -151,10 +151,12 @@ class CrossGroupEnforcer:
 
                         # Only consolidate if target is from single-league group
                         if target_channel.event_epg_group_id not in single_league_ids:
-                            result.channels_skipped.append({
-                                "channel": channel.channel_name,
-                                "reason": "Target is not single-league",
-                            })
+                            result.channels_skipped.append(
+                                {
+                                    "channel": channel.channel_name,
+                                    "reason": "Target is not single-league",
+                                }
+                            )
                             continue
 
                         # Move streams from multi-league to single-league
@@ -180,11 +182,13 @@ class CrossGroupEnforcer:
                             )
                             moved_count += 1
 
-                            result.streams_moved.append({
-                                "stream": stream.stream_name,
-                                "from_channel": channel.channel_name,
-                                "to_channel": target_channel.channel_name,
-                            })
+                            result.streams_moved.append(
+                                {
+                                    "stream": stream.stream_name,
+                                    "from_channel": channel.channel_name,
+                                    "to_channel": target_channel.channel_name,
+                                }
+                            )
 
                         # Sync to Dispatcharr
                         if self._channel_manager and moved_count > 0:
@@ -217,12 +221,14 @@ class CrossGroupEnforcer:
                                 notes=f"Received {moved_count} streams from cross-group",
                             )
 
-                        result.channels_deleted.append({
-                            "channel": channel.channel_name,
-                            "event_id": event_id,
-                            "streams_moved": moved_count,
-                            "consolidated_into": target_channel.channel_name,
-                        })
+                        result.channels_deleted.append(
+                            {
+                                "channel": channel.channel_name,
+                                "event_id": event_id,
+                                "streams_moved": moved_count,
+                                "consolidated_into": target_channel.channel_name,
+                            }
+                        )
 
                 conn.commit()
 

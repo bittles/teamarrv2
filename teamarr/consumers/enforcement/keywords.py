@@ -142,11 +142,13 @@ class KeywordEnforcer:
                                 stream.dispatcharr_stream_id,
                                 reason=f"Keyword '{expected_keyword}' behavior is ignore",
                             )
-                            result.streams_moved.append({
-                                "stream": stream_name,
-                                "action": "removed",
-                                "reason": f"Keyword '{expected_keyword}' set to ignore",
-                            })
+                            result.streams_moved.append(
+                                {
+                                    "stream": stream_name,
+                                    "action": "removed",
+                                    "reason": f"Keyword '{expected_keyword}' set to ignore",
+                                }
+                            )
                             continue
 
                         # Is stream on correct channel?
@@ -167,10 +169,12 @@ class KeywordEnforcer:
 
                         if not target_channel:
                             # Can't move - target doesn't exist
-                            result.errors.append({
-                                "stream": stream_name,
-                                "error": f"No target channel for keyword '{expected_keyword}'",
-                            })
+                            result.errors.append(
+                                {
+                                    "stream": stream_name,
+                                    "error": f"No target channel for keyword '{expected_keyword}'",
+                                }
+                            )
                             continue
 
                         if target_channel.id == channel.id:
@@ -223,13 +227,15 @@ class KeywordEnforcer:
                             notes=f"Received stream '{stream_name}' from keyword enforcement",
                         )
 
-                        result.streams_moved.append({
-                            "stream": stream_name,
-                            "from_channel": channel.channel_name,
-                            "to_channel": target_channel.channel_name,
-                            "from_keyword": current_keyword,
-                            "to_keyword": expected_keyword,
-                        })
+                        result.streams_moved.append(
+                            {
+                                "stream": stream_name,
+                                "from_channel": channel.channel_name,
+                                "to_channel": target_channel.channel_name,
+                                "from_keyword": current_keyword,
+                                "to_keyword": expected_keyword,
+                            }
+                        )
 
                 conn.commit()
 

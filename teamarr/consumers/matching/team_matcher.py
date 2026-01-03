@@ -75,8 +75,7 @@ class MatchContext:
                 status_state = event.status.state.lower() if event.status.state else ""
                 status_detail = event.status.detail.lower() if event.status.detail else ""
                 is_completed = (
-                    status_state in ("final", "post", "completed")
-                    or "final" in status_detail
+                    status_state in ("final", "post", "completed") or "final" in status_detail
                 )
                 if is_completed:
                     return False
@@ -395,9 +394,7 @@ class TeamMatcher:
                     continue
 
             # Try to match teams
-            match_result = self._match_teams_to_event(
-                team1_normalized, team2_normalized, event
-            )
+            match_result = self._match_teams_to_event(team1_normalized, team2_normalized, event)
 
             if match_result and match_result[1] > best_confidence:
                 best_match = event
@@ -408,7 +405,8 @@ class TeamMatcher:
             # If multiple events same day (doubleheader), pick closest to stream time
             if ctx.classified.normalized.extracted_time:
                 matching_events = [
-                    e for e in events
+                    e
+                    for e in events
                     if e.start_time.astimezone(ctx.user_tz).date() == ctx.target_date
                     and self._match_teams_to_event(team1_normalized, team2_normalized, e)
                 ]
@@ -481,9 +479,7 @@ class TeamMatcher:
                     continue
 
             # Try to match teams
-            match_result = self._match_teams_to_event(
-                team1_normalized, team2_normalized, event
-            )
+            match_result = self._match_teams_to_event(team1_normalized, team2_normalized, event)
 
             if match_result and match_result[1] > best_confidence:
                 best_match = event
@@ -615,10 +611,7 @@ class TeamMatcher:
         ref_date = events[0].start_time.astimezone(user_tz).date()
         stream_dt = datetime.combine(ref_date, stream_time, tzinfo=user_tz)
 
-        return min(
-            events,
-            key=lambda e: abs(e.start_time.astimezone(user_tz) - stream_dt)
-        )
+        return min(events, key=lambda e: abs(e.start_time.astimezone(user_tz) - stream_dt))
 
     def _cache_result(self, ctx: MatchContext, result: MatchOutcome) -> None:
         """Cache a successful match."""

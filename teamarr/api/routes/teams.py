@@ -277,7 +277,7 @@ def bulk_update_channel_ids(request: BulkChannelIdRequest):
     """
     import re
 
-    from teamarr.database.leagues import get_league_id, get_league_display
+    from teamarr.database.leagues import get_league_display, get_league_id
 
     if not request.team_ids:
         return BulkChannelIdResponse(updated=0, errors=["No teams selected"])
@@ -311,17 +311,13 @@ def bulk_update_channel_ids(request: BulkChannelIdRequest):
                 channel_id = channel_id.replace(
                     "{team_abbrev}", (team_data.get("team_abbrev") or "").lower()
                 )
-                channel_id = channel_id.replace(
-                    "{team_name}", team_name.lower().replace(" ", "-")
-                )
+                channel_id = channel_id.replace("{team_name}", team_name.lower().replace(" ", "-"))
                 channel_id = channel_id.replace(
                     "{provider_team_id}", str(team_data.get("provider_team_id") or "")
                 )
                 channel_id = channel_id.replace("{league_id}", league_id)
                 channel_id = channel_id.replace("{league}", league_display)
-                channel_id = channel_id.replace(
-                    "{sport}", (team_data.get("sport") or "").lower()
-                )
+                channel_id = channel_id.replace("{sport}", (team_data.get("sport") or "").lower())
 
                 # Clean up channel ID
                 if (

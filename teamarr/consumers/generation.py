@@ -126,8 +126,12 @@ def run_full_generation(
     result.started_at = time.time()
 
     def update_progress(
-        phase: str, percent: int, message: str,
-        current: int = 0, total: int = 0, item_name: str = "",
+        phase: str,
+        percent: int,
+        message: str,
+        current: int = 0,
+        total: int = 0,
+        item_name: str = "",
     ):
         if progress_callback:
             progress_callback(phase, percent, message, current, total, item_name)

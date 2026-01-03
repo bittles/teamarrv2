@@ -19,7 +19,6 @@ from datetime import date, datetime, timedelta
 from sqlite3 import Connection
 from typing import Any, Callable
 
-from teamarr.consumers.matching import BatchMatchResult, StreamMatcher
 from teamarr.consumers.channel_lifecycle import (
     StreamProcessResult,
     create_lifecycle_service,
@@ -34,6 +33,7 @@ from teamarr.consumers.filler.event_filler import (
     EventFillerResult,
     template_to_event_filler_config,
 )
+from teamarr.consumers.matching import BatchMatchResult, StreamMatcher
 from teamarr.core import Event
 from teamarr.database.groups import (
     EventEPGGroup,
@@ -425,10 +425,7 @@ class EventGroupProcessor:
                 return result
 
             # Convert DispatcharrStream objects to dict format
-            streams = [
-                {"id": s.id, "name": s.name}
-                for s in raw_streams
-            ]
+            streams = [{"id": s.id, "name": s.name} for s in raw_streams]
             result.total_streams = len(streams)
 
             # Step 2: Apply stream filtering
@@ -664,6 +661,7 @@ class EventGroupProcessor:
             if not leagues:
                 # Inherit from parent - need to look up parent
                 from teamarr.database.groups import get_group
+
                 parent = get_group(conn, group.parent_group_id)
                 if parent:
                     leagues = parent.leagues
@@ -763,6 +761,7 @@ class EventGroupProcessor:
         channel_manager = None
         if self._dispatcharr_client:
             from teamarr.dispatcharr import ChannelManager
+
             channel_manager = ChannelManager(self._dispatcharr_client)
 
         return ChildStreamProcessor(
@@ -783,6 +782,7 @@ class EventGroupProcessor:
         channel_manager = None
         if self._dispatcharr_client:
             from teamarr.dispatcharr import ChannelManager
+
             channel_manager = ChannelManager(self._dispatcharr_client)
 
         # Keyword enforcement
@@ -858,7 +858,9 @@ class EventGroupProcessor:
 
             # Step 2: Fetch events from data providers
             events = self._fetch_events(group.leagues, target_date)
-            logger.info(f"Fetched {len(events)} events for group '{group.name}' leagues={group.leagues}")
+            logger.info(
+                f"Fetched {len(events)} events for group '{group.name}' leagues={group.leagues}"
+            )
 
             if not events:
                 result.errors.append(f"No events found for leagues: {group.leagues}")
@@ -899,9 +901,11 @@ class EventGroupProcessor:
 
             # Step 4: Create/update channels
             matched_streams = self._build_matched_stream_list(streams, match_result)
+
             # Sort by event start time so channels are created in chronological order
             def sort_key(m):
                 return m["event"].start_time if m.get("event") else datetime.max
+
             matched_streams.sort(key=sort_key)
 
             # Extract all stream IDs for cleanup (V1 parity: cleanup missing streams)
@@ -1146,9 +1150,7 @@ class EventGroupProcessor:
 
         # Load settings for event filtering
         with self._db_factory() as conn:
-            row = conn.execute(
-                "SELECT include_final_events FROM settings WHERE id = 1"
-            ).fetchone()
+            row = conn.execute("SELECT include_final_events FROM settings WHERE id = 1").fetchone()
             include_final_events = bool(row["include_final_events"]) if row else False
 
         sport_durations = self._load_sport_durations_cached()
@@ -1230,8 +1232,7 @@ class EventGroupProcessor:
             if result.matched and result.included and result.event:
                 # Successfully matched and included
                 event_date = (
-                    result.event.start_time.isoformat()
-                    if result.event.start_time else None
+                    result.event.start_time.isoformat() if result.event.start_time else None
                 )
                 # Extract match method and confidence if available (Phase 7 enhancement)
                 match_method = getattr(result, "match_method", None)
@@ -1380,9 +1381,7 @@ class EventGroupProcessor:
         # V1 Parity Step 2: Cleanup deleted/missing streams
         if all_stream_ids is not None:
             try:
-                cleanup_result = lifecycle_service.cleanup_deleted_streams(
-                    group.id, all_stream_ids
-                )
+                cleanup_result = lifecycle_service.cleanup_deleted_streams(group.id, all_stream_ids)
                 combined_result.merge(cleanup_result)
                 if cleanup_result.deleted:
                     logger.info(
@@ -1459,6 +1458,7 @@ class EventGroupProcessor:
 
             # Load raw template for filler config
             from teamarr.database.templates import get_template
+
             template_db = get_template(conn, group.template_id)
             if template_db and (template_db.pregame_enabled or template_db.postgame_enabled):
                 filler_config = template_to_event_filler_config(template_db)

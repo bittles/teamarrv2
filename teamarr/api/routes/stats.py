@@ -124,19 +124,25 @@ def get_dashboard_stats():
             unmatched_streams = latest_run["streams_unmatched"] or 0
 
             # Get per-group breakdown from matched/failed streams tables
-            matched_by_group = conn.execute("""
+            matched_by_group = conn.execute(
+                """
                 SELECT group_id, COUNT(*) as matched
                 FROM epg_matched_streams
                 WHERE run_id = ?
                 GROUP BY group_id
-            """, (latest_run["id"],)).fetchall()
+            """,
+                (latest_run["id"],),
+            ).fetchall()
 
-            failed_by_group = conn.execute("""
+            failed_by_group = conn.execute(
+                """
                 SELECT group_id, COUNT(*) as failed
                 FROM epg_failed_matches
                 WHERE run_id = ?
                 GROUP BY group_id
-            """, (latest_run["id"],)).fetchall()
+            """,
+                (latest_run["id"],),
+            ).fetchall()
 
             # Build lookup for failed counts
             failed_lookup = {r["group_id"]: r["failed"] for r in failed_by_group}
@@ -145,30 +151,36 @@ def get_dashboard_stats():
                 gid = r["group_id"]
                 matched = r["matched"]
                 failed = failed_lookup.get(gid, 0)
-                group_breakdown.append({
-                    "name": group_name_lookup.get(gid, f"Group {gid}"),
-                    "matched": matched,
-                    "total": matched + failed,
-                })
+                group_breakdown.append(
+                    {
+                        "name": group_name_lookup.get(gid, f"Group {gid}"),
+                        "matched": matched,
+                        "total": matched + failed,
+                    }
+                )
 
             # Add groups with only failures (no matches)
             matched_gids = {r["group_id"] for r in matched_by_group}
             for gid, failed in failed_lookup.items():
                 if gid not in matched_gids:
-                    group_breakdown.append({
-                        "name": group_name_lookup.get(gid, f"Group {gid}"),
-                        "matched": 0,
-                        "total": failed,
-                    })
+                    group_breakdown.append(
+                        {
+                            "name": group_name_lookup.get(gid, f"Group {gid}"),
+                            "matched": 0,
+                            "total": failed,
+                        }
+                    )
         else:
             # No runs yet - show groups with zero matches
             for g in groups:
                 stream_count = g["total_stream_count"] or 0
-                group_breakdown.append({
-                    "name": g["name"],
-                    "matched": 0,
-                    "total": stream_count,
-                })
+                group_breakdown.append(
+                    {
+                        "name": g["name"],
+                        "matched": 0,
+                        "total": stream_count,
+                    }
+                )
 
         # Calculate match percent from actual data
         total_eligible = matched_streams + unmatched_streams
@@ -418,8 +430,10 @@ def _parse_xmltv_for_live_stats(
         subtitle_elem = programme.find("sub-title")
         title_elem = programme.find("title")
         title = (
-            subtitle_elem.text if subtitle_elem is not None and subtitle_elem.text
-            else title_elem.text if title_elem is not None
+            subtitle_elem.text
+            if subtitle_elem is not None and subtitle_elem.text
+            else title_elem.text
+            if title_elem is not None
             else ""
         )
 
@@ -457,12 +471,14 @@ def _parse_xmltv_for_live_stats(
                 # Add to live_events list for tooltip display
                 if "live_events" not in stats:
                     stats["live_events"] = []
-                stats["live_events"].append({
-                    "title": title,
-                    "channel_id": channel_id,
-                    "start_time": start_local.isoformat(),
-                    "league": league.upper(),
-                })
+                stats["live_events"].append(
+                    {
+                        "title": title,
+                        "channel_id": channel_id,
+                        "start_time": start_local.isoformat(),
+                        "league": league.upper(),
+                    }
+                )
 
 
 @router.get("/history")

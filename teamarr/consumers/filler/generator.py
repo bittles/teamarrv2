@@ -527,11 +527,15 @@ class FillerGenerator:
         """
         next_game = None
         if next_event:
-            next_game = self._build_game_context(next_event, team_config.team_id, team_config.league)
+            next_game = self._build_game_context(
+                next_event, team_config.team_id, team_config.league
+            )
 
         last_game = None
         if last_event:
-            last_game = self._build_game_context(last_event, team_config.team_id, team_config.league)
+            last_game = self._build_game_context(
+                last_event, team_config.team_id, team_config.league
+            )
 
         return TemplateContext(
             game_context=None,  # No current game for filler

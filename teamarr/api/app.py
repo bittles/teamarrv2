@@ -218,6 +218,7 @@ def create_app() -> FastAPI:
             # This prevents the catch-all from hijacking API requests
             if path.startswith("api/"):
                 from fastapi import HTTPException
+
                 raise HTTPException(status_code=404, detail="Not found")
 
             # Serve static files if they exist (favicon, etc.)

@@ -244,7 +244,9 @@ class StreamMatchCache:
                 )
                 conn.commit()
                 self._stats["sets"] += 1
-                logger.debug(f"[CACHE SET] stream_id={stream_id} -> event_id={event_id} ({match_method})")
+                logger.debug(
+                    f"[CACHE SET] stream_id={stream_id} -> event_id={event_id} ({match_method})"
+                )
                 return True
         except sqlite3.Error as e:
             logger.error(f"Database error caching stream match: {e}")
@@ -486,7 +488,9 @@ class StreamMatchCache:
                     )
                     success_purged = cursor.rowcount
                     if success_purged > 0:
-                        logger.debug(f"[CACHE PURGE] Removed {success_purged} stale successful matches")
+                        logger.debug(
+                            f"[CACHE PURGE] Removed {success_purged} stale successful matches"
+                        )
                     purged_total += success_purged
 
                 conn.commit()

@@ -221,8 +221,18 @@ def _parse_date_match(match: re.Match) -> date | None:
 
         # Check if it's a month name pattern
         month_names = {
-            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+            "jan": 1,
+            "feb": 2,
+            "mar": 3,
+            "apr": 4,
+            "may": 5,
+            "jun": 6,
+            "jul": 7,
+            "aug": 8,
+            "sep": 9,
+            "oct": 10,
+            "nov": 11,
+            "dec": 12,
         }
 
         for month_abbr, month_num in month_names.items():
@@ -233,6 +243,7 @@ def _parse_date_match(match: re.Match) -> date | None:
                     day = int(day_match.group(1))
                     # Assume current year for now
                     from datetime import datetime
+
                     year = datetime.now().year
                     return date(year, month_num, day)
                 return None

@@ -625,9 +625,9 @@ def _convert_v1_group_to_v2(v1_row: dict, template_id_map: dict[int, int]) -> di
         "stream_exclude_regex": v1_row.get("stream_exclude_regex"),
         "stream_exclude_regex_enabled": v1_row.get("stream_exclude_regex_enabled") or 0,
         "custom_regex_teams": v1_row.get("custom_regex_teams") or v1_row.get("custom_regex"),
-        "custom_regex_teams_enabled": v1_row.get("custom_regex_teams_enabled") or v1_row.get(
-            "custom_regex_enabled"
-        ) or 0,
+        "custom_regex_teams_enabled": v1_row.get("custom_regex_teams_enabled")
+        or v1_row.get("custom_regex_enabled")
+        or 0,
         "custom_regex_date": v1_row.get("custom_regex_date"),
         "custom_regex_date_enabled": v1_row.get("custom_regex_date_enabled") or 0,
         "custom_regex_time": v1_row.get("custom_regex_time"),
@@ -639,9 +639,9 @@ def _convert_v1_group_to_v2(v1_row: dict, template_id_map: dict[int, int]) -> di
         "filtered_not_event": 0,  # Reset
         "channel_sort_order": v1_row.get("channel_sort_order") or "time",
         # Map V1 overlap_handling to V2 values ("consolidate" → "add_stream")
-        "overlap_handling": "add_stream" if v1_row.get("overlap_handling") in (
-            None, "consolidate"
-        ) else v1_row.get("overlap_handling"),
+        "overlap_handling": "add_stream"
+        if v1_row.get("overlap_handling") in (None, "consolidate")
+        else v1_row.get("overlap_handling"),
         "enabled": v1_row.get("enabled", 1),
     }
 
@@ -816,7 +816,9 @@ def migrate_v1_all(request: V1MigrateRequest):
     if groups_result.migrated_count:
         parts.append(f"{groups_result.migrated_count} groups")
 
-    message = f"Migrated: {', '.join(parts)}" if parts else "Nothing to migrate (all items already exist)"
+    message = (
+        f"Migrated: {', '.join(parts)}" if parts else "Nothing to migrate (all items already exist)"
+    )
 
     return V1FullMigrateResponse(
         success=True,

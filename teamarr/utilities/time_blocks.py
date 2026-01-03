@@ -123,9 +123,7 @@ def get_block_for_time(dt: datetime) -> int:
         return 3
 
 
-def crosses_midnight(
-    start_dt: datetime, end_dt: datetime, tz: ZoneInfo | None = None
-) -> bool:
+def crosses_midnight(start_dt: datetime, end_dt: datetime, tz: ZoneInfo | None = None) -> bool:
     """Check if a time range crosses midnight in the specified timezone.
 
     Args:

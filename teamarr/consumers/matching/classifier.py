@@ -239,20 +239,12 @@ def extract_event_card_hint(text: str) -> str | None:
         return None
 
     # UFC 315, UFC FN 123, etc.
-    ufc_match = re.search(
-        r"\b(ufc\s*(?:fn|fight\s*night)?\s*\d+)\b",
-        text,
-        re.IGNORECASE
-    )
+    ufc_match = re.search(r"\b(ufc\s*(?:fn|fight\s*night)?\s*\d+)\b", text, re.IGNORECASE)
     if ufc_match:
         return ufc_match.group(1).upper().replace("  ", " ")
 
     # PFL 5, Bellator 300, etc.
-    org_match = re.search(
-        r"\b((?:pfl|bellator|one\s*fc)\s*\d+)\b",
-        text,
-        re.IGNORECASE
-    )
+    org_match = re.search(r"\b((?:pfl|bellator|one\s*fc)\s*\d+)\b", text, re.IGNORECASE)
     if org_match:
         return org_match.group(1).upper()
 

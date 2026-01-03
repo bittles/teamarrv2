@@ -123,9 +123,13 @@ def _row_to_group(row) -> EventEPGGroup:
         custom_regex_teams=row["custom_regex_teams"],
         custom_regex_teams_enabled=bool(row["custom_regex_teams_enabled"]),
         custom_regex_date=row["custom_regex_date"] if "custom_regex_date" in row.keys() else None,
-        custom_regex_date_enabled=bool(row["custom_regex_date_enabled"]) if "custom_regex_date_enabled" in row.keys() else False,
+        custom_regex_date_enabled=bool(row["custom_regex_date_enabled"])
+        if "custom_regex_date_enabled" in row.keys()
+        else False,
         custom_regex_time=row["custom_regex_time"] if "custom_regex_time" in row.keys() else None,
-        custom_regex_time_enabled=bool(row["custom_regex_time_enabled"]) if "custom_regex_time_enabled" in row.keys() else False,
+        custom_regex_time_enabled=bool(row["custom_regex_time_enabled"])
+        if "custom_regex_time_enabled" in row.keys()
+        else False,
         skip_builtin_filter=bool(row["skip_builtin_filter"]),
         # Filtering stats
         filtered_include_regex=row["filtered_include_regex"] or 0,
@@ -652,7 +656,16 @@ def update_group_stats(
                    filtered_not_event = ?,
                    total_stream_count = ?
                WHERE id = ?""",
-            (stream_count, matched_count, filtered_include_regex, filtered_exclude_regex, filtered_no_match, filtered_not_event, total_stream_count, group_id),
+            (
+                stream_count,
+                matched_count,
+                filtered_include_regex,
+                filtered_exclude_regex,
+                filtered_no_match,
+                filtered_not_event,
+                total_stream_count,
+                group_id,
+            ),
         )
     else:
         cursor = conn.execute(
@@ -665,7 +678,15 @@ def update_group_stats(
                    filtered_no_match = ?,
                    filtered_not_event = ?
                WHERE id = ?""",
-            (stream_count, matched_count, filtered_include_regex, filtered_exclude_regex, filtered_no_match, filtered_not_event, group_id),
+            (
+                stream_count,
+                matched_count,
+                filtered_include_regex,
+                filtered_exclude_regex,
+                filtered_no_match,
+                filtered_not_event,
+                group_id,
+            ),
         )
     return cursor.rowcount > 0
 

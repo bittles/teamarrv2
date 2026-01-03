@@ -240,9 +240,7 @@ class HockeyTechClient:
 
         return [game for game in schedule if game.get("date_played") == date_str]
 
-    def get_team_schedule(
-        self, league: str, team_id: str, days_ahead: int = 14
-    ) -> list[dict]:
+    def get_team_schedule(self, league: str, team_id: str, days_ahead: int = 14) -> list[dict]:
         """Get upcoming games for a specific team.
 
         Filters the full schedule for games where this team is home or away.

@@ -308,8 +308,7 @@ class StreamMatcher:
         """Match an event card stream (UFC, boxing)."""
         # Find the event card league in our search leagues
         event_card_leagues = [
-            lg for lg in self._search_leagues
-            if self._league_event_types.get(lg) == "event_card"
+            lg for lg in self._search_leagues if self._league_event_types.get(lg) == "event_card"
         ]
 
         if not event_card_leagues:
@@ -413,9 +412,7 @@ class StreamMatcher:
             for league in self._search_leagues:
                 league_info = get_league(conn, league)
                 if league_info:
-                    self._league_event_types[league] = league_info.get(
-                        "event_type", "team_vs_team"
-                    )
+                    self._league_event_types[league] = league_info.get("event_type", "team_vs_team")
 
     def purge_stale(self) -> int:
         """Purge stale cache entries.

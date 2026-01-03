@@ -658,8 +658,7 @@ def get_matched_streams(
 
     # Check if this is a full_epg run - if so, find child event_group runs
     run_info = conn.execute(
-        "SELECT run_type, started_at, completed_at FROM processing_runs WHERE id = ?",
-        (run_id,)
+        "SELECT run_type, started_at, completed_at FROM processing_runs WHERE id = ?", (run_id,)
     ).fetchone()
 
     if run_info and run_info["run_type"] == "full_epg":
@@ -671,7 +670,7 @@ def get_matched_streams(
               AND started_at >= ?
               AND started_at <= ?
             """,
-            (run_info["started_at"], run_info["completed_at"])
+            (run_info["started_at"], run_info["completed_at"]),
         ).fetchall()
         run_ids = [r["id"] for r in child_runs]
         if not run_ids:
@@ -725,8 +724,7 @@ def get_failed_matches(
 
     # Check if this is a full_epg run - if so, find child event_group runs
     run_info = conn.execute(
-        "SELECT run_type, started_at, completed_at FROM processing_runs WHERE id = ?",
-        (run_id,)
+        "SELECT run_type, started_at, completed_at FROM processing_runs WHERE id = ?", (run_id,)
     ).fetchone()
 
     if run_info and run_info["run_type"] == "full_epg":
@@ -738,7 +736,7 @@ def get_failed_matches(
               AND started_at >= ?
               AND started_at <= ?
             """,
-            (run_info["started_at"], run_info["completed_at"])
+            (run_info["started_at"], run_info["completed_at"]),
         ).fetchall()
         run_ids = [r["id"] for r in child_runs]
         if not run_ids:

@@ -89,14 +89,10 @@ class SchedulerService:
             running=status.get("running", False),
             cron_expression=status.get("cron_expression", "0 * * * *"),
             last_run=(
-                datetime.fromisoformat(status["last_run"])
-                if status.get("last_run")
-                else None
+                datetime.fromisoformat(status["last_run"]) if status.get("last_run") else None
             ),
             next_run=(
-                datetime.fromisoformat(status["next_run"])
-                if status.get("next_run")
-                else None
+                datetime.fromisoformat(status["next_run"]) if status.get("next_run") else None
             ),
         )
 
@@ -117,9 +113,7 @@ class SchedulerService:
 
         return SchedulerRunResult(
             started_at=(
-                datetime.fromisoformat(result["started_at"])
-                if result.get("started_at")
-                else None
+                datetime.fromisoformat(result["started_at"]) if result.get("started_at") else None
             ),
             completed_at=(
                 datetime.fromisoformat(result["completed_at"])

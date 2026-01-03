@@ -333,9 +333,7 @@ class ChannelLifecycleService:
         # V1 Parity: Verify channel exists in Dispatcharr, recreate if missing
         if self._channel_manager and existing.dispatcharr_channel_id:
             with self._dispatcharr_lock:
-                disp_channel = self._channel_manager.get_channel(
-                    existing.dispatcharr_channel_id
-                )
+                disp_channel = self._channel_manager.get_channel(existing.dispatcharr_channel_id)
                 if not disp_channel:
                     # Channel deleted from Dispatcharr - recreate it
                     logger.warning(
@@ -786,14 +784,14 @@ class ChannelLifecycleService:
         | template            | logo_id             | Upload/update if different  |
         | event_id            | tvg_id              | Ensures EPG matching        |
         """
-        from teamarr.database.channels import (
-            log_channel_history,
-            update_managed_channel,
-        )
         from teamarr.database.channel_numbers import (
             get_group_channel_range,
             get_next_channel_number,
             validate_channel_in_range,
+        )
+        from teamarr.database.channels import (
+            log_channel_history,
+            update_managed_channel,
         )
 
         result = StreamProcessResult()
@@ -1297,12 +1295,12 @@ class ChannelLifecycleService:
         Returns:
             Dict with reassigned, already_correct, and errors
         """
+        from teamarr.database.channel_numbers import get_group_channel_range
         from teamarr.database.channels import (
             get_managed_channels_for_group,
             log_channel_history,
             update_managed_channel,
         )
-        from teamarr.database.channel_numbers import get_group_channel_range
         from teamarr.database.groups import get_group
 
         result = {
@@ -1427,15 +1425,15 @@ class ChannelLifecycleService:
         Returns:
             Dict with total stats across all groups
         """
+        from teamarr.database.channel_numbers import (
+            _calculate_blocks_needed,
+            _get_total_stream_count,
+            get_global_channel_range,
+        )
         from teamarr.database.channels import (
             get_managed_channels_for_group,
             log_channel_history,
             update_managed_channel,
-        )
-        from teamarr.database.channel_numbers import (
-            get_global_channel_range,
-            _get_total_stream_count,
-            _calculate_blocks_needed,
         )
 
         result = {
@@ -1472,13 +1470,15 @@ class ChannelLifecycleService:
                     blocks_needed = _calculate_blocks_needed(total_streams)
                     group_end = current_start + (blocks_needed * 10) - 1
 
-                    group_ranges.append({
-                        "id": group_id,
-                        "name": grp["name"],
-                        "ideal_start": current_start,
-                        "ideal_end": group_end,
-                        "stream_count": total_streams,
-                    })
+                    group_ranges.append(
+                        {
+                            "id": group_id,
+                            "name": grp["name"],
+                            "ideal_start": current_start,
+                            "ideal_end": group_end,
+                            "stream_count": total_streams,
+                        }
+                    )
 
                     current_start = group_end + 1
 
@@ -1493,8 +1493,7 @@ class ChannelLifecycleService:
                         continue
 
                     sorted_channels = sorted(
-                        channels,
-                        key=lambda c: int(c.channel_number) if c.channel_number else 9999
+                        channels, key=lambda c: int(c.channel_number) if c.channel_number else 9999
                     )
 
                     # Reassign to ideal range
@@ -1516,9 +1515,7 @@ class ChannelLifecycleService:
                                     {"channel_number": next_number},
                                 )
 
-                        update_managed_channel(
-                            conn, channel.id, {"channel_number": next_number}
-                        )
+                        update_managed_channel(conn, channel.id, {"channel_number": next_number})
 
                         log_channel_history(
                             conn=conn,

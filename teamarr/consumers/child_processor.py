@@ -137,10 +137,12 @@ class ChildStreamProcessor:
                     event = matched.get("event")
 
                     if not event:
-                        result.errors.append({
-                            "stream": stream.get("name", "Unknown"),
-                            "error": "No event data",
-                        })
+                        result.errors.append(
+                            {
+                                "stream": stream.get("name", "Unknown"),
+                                "error": "No event data",
+                            }
+                        )
                         continue
 
                     stream_name = stream.get("name", "")
@@ -155,10 +157,12 @@ class ChildStreamProcessor:
 
                     # Skip if keyword behavior is 'ignore'
                     if keyword_behavior == "ignore":
-                        result.streams_skipped.append({
-                            "stream": stream_name,
-                            "reason": f"Exception keyword '{matched_keyword}' set to ignore",
-                        })
+                        result.streams_skipped.append(
+                            {
+                                "stream": stream_name,
+                                "reason": f"Exception keyword '{matched_keyword}' set to ignore",
+                            }
+                        )
                         continue
 
                     # Find parent's channel for this event
@@ -186,20 +190,24 @@ class ChildStreamProcessor:
                             )
 
                     if not parent_channel:
-                        result.streams_skipped.append({
-                            "stream": stream_name,
-                            "event_id": event_id,
-                            "reason": "No parent channel for event",
-                        })
+                        result.streams_skipped.append(
+                            {
+                                "stream": stream_name,
+                                "event_id": event_id,
+                                "reason": "No parent channel for event",
+                            }
+                        )
                         continue
 
                     # Check if stream already exists on channel
                     if stream_exists_on_channel(conn, parent_channel.id, stream_id):
-                        result.streams_existing.append({
-                            "stream": stream_name,
-                            "channel_id": parent_channel.dispatcharr_channel_id,
-                            "channel_name": parent_channel.channel_name,
-                        })
+                        result.streams_existing.append(
+                            {
+                                "stream": stream_name,
+                                "channel_id": parent_channel.dispatcharr_channel_id,
+                                "channel_name": parent_channel.channel_name,
+                            }
+                        )
                         continue
 
                     # Add stream to database
@@ -233,13 +241,15 @@ class ChildStreamProcessor:
                         notes=f"Added stream '{stream_name}' from child group '{child_group_name}'",
                     )
 
-                    result.streams_added.append({
-                        "stream": stream_name,
-                        "event_id": event_id,
-                        "channel_id": parent_channel.dispatcharr_channel_id,
-                        "channel_name": parent_channel.channel_name,
-                        "keyword": matched_keyword,
-                    })
+                    result.streams_added.append(
+                        {
+                            "stream": stream_name,
+                            "event_id": event_id,
+                            "channel_id": parent_channel.dispatcharr_channel_id,
+                            "channel_name": parent_channel.channel_name,
+                            "keyword": matched_keyword,
+                        }
+                    )
 
                 conn.commit()
 

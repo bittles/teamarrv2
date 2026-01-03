@@ -125,10 +125,7 @@ class EventCardMatcher:
             )
 
         # Filter to events on target date
-        date_events = [
-            e for e in events
-            if e.start_time.astimezone(user_tz).date() == target_date
-        ]
+        date_events = [e for e in events if e.start_time.astimezone(user_tz).date() == target_date]
 
         if not date_events:
             return MatchOutcome.failed(
@@ -162,6 +159,7 @@ class EventCardMatcher:
 
         # Reconstruct event
         from teamarr.consumers.matching.team_matcher import TeamMatcher
+
         # Reuse reconstruction logic (bit of a hack but avoids duplication)
         matcher = TeamMatcher(self._service, self._cache)
         event = matcher._reconstruct_event(entry.cached_data)

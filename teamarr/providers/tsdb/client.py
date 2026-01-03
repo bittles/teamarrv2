@@ -356,8 +356,7 @@ class TSDBClient:
                 # Success after backoff - log recovery
                 if backoff_attempt > 0:
                     logger.info(
-                        f"TSDB request succeeded after {backoff_attempt} "
-                        f"rate limit retry(ies)"
+                        f"TSDB request succeeded after {backoff_attempt} rate limit retry(ies)"
                     )
 
                 return response.json()

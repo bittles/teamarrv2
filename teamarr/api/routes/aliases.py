@@ -1,8 +1,9 @@
 """API routes for team aliases."""
 
+from sqlite3 import Connection, IntegrityError
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlite3 import Connection, IntegrityError
 
 from teamarr.database import get_db
 from teamarr.database.aliases import (

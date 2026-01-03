@@ -234,6 +234,7 @@ class CacheRefresher:
                 if (not logo_url or not league_name) and provider_name == "espn":
                     try:
                         from teamarr.providers.espn.client import ESPNClient
+
                         client = ESPNClient()
                         league_info_api = client.get_league_info(league_slug)
                         if league_info_api:

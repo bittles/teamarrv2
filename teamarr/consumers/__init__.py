@@ -12,11 +12,6 @@ from teamarr.consumers.cache import (
     refresh_cache,
     refresh_cache_if_needed,
 )
-from teamarr.consumers.matching import (
-    BatchMatchResult,
-    MatchedStreamResult,
-    StreamMatcher,
-)
 from teamarr.consumers.channel_lifecycle import (
     ChannelCreationResult,
     ChannelLifecycleManager,
@@ -43,10 +38,6 @@ from teamarr.consumers.event_group_processor import (
     process_event_group,
 )
 from teamarr.consumers.event_matcher import EventMatcher
-from teamarr.consumers.generation import (
-    GenerationResult as FullGenerationResult,
-    run_full_generation,
-)
 from teamarr.consumers.filler import (
     ConditionalFillerTemplate,
     FillerConfig,
@@ -55,6 +46,17 @@ from teamarr.consumers.filler import (
     FillerTemplate,
     FillerType,
     OffseasonFillerTemplate,
+)
+from teamarr.consumers.generation import (
+    GenerationResult as FullGenerationResult,
+)
+from teamarr.consumers.generation import (
+    run_full_generation,
+)
+from teamarr.consumers.matching import (
+    BatchMatchResult,
+    MatchedStreamResult,
+    StreamMatcher,
 )
 from teamarr.consumers.orchestrator import (
     GenerationResult,

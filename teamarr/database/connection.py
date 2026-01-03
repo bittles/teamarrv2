@@ -156,12 +156,12 @@ def _verify_database_integrity(conn: sqlite3.Connection, path: Path) -> None:
     # Check for V1-specific tables that indicate an incompatible database
     # These tables exist only in V1 and NOT in V2
     v1_indicators = {
-        "schedule_cache",        # V1 caching
-        "league_config",         # V1 league configuration
-        "h2h_cache",            # V1 head-to-head (removed in V2)
-        "error_log",            # V1 error logging
-        "soccer_cache_meta",    # V1 soccer-specific cache
-        "team_stats_cache",     # V1 stats cache
+        "schedule_cache",  # V1 caching
+        "league_config",  # V1 league configuration
+        "h2h_cache",  # V1 head-to-head (removed in V2)
+        "error_log",  # V1 error logging
+        "soccer_cache_meta",  # V1 soccer-specific cache
+        "team_stats_cache",  # V1 stats cache
     }
     v1_tables_found = v1_indicators & existing_tables
 
@@ -192,9 +192,7 @@ def _rename_league_id_column_if_needed(conn: sqlite3.Connection) -> None:
     logger = logging.getLogger(__name__)
 
     # Check if leagues table exists
-    cursor = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='leagues'"
-    )
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='leagues'")
     if not cursor.fetchone():
         return  # Fresh database, schema.sql will create table with correct column
 
@@ -218,9 +216,7 @@ def _add_league_alias_column_if_needed(conn: sqlite3.Connection) -> None:
     logger = logging.getLogger(__name__)
 
     # Check if leagues table exists
-    cursor = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='leagues'"
-    )
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='leagues'")
     if not cursor.fetchone():
         return  # Fresh database, schema.sql will create table with correct column
 
@@ -244,9 +240,7 @@ def _add_gracenote_category_column_if_needed(conn: sqlite3.Connection) -> None:
     logger = logging.getLogger(__name__)
 
     # Check if leagues table exists
-    cursor = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='leagues'"
-    )
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='leagues'")
     if not cursor.fetchone():
         return  # Fresh database, schema.sql will create table with correct column
 
@@ -395,9 +389,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     # Version 8: Add custom_regex_date/time columns to event_epg_groups
     if current_version < 8:
         _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_date", "TEXT")
-        _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_date_enabled", "BOOLEAN DEFAULT 0")
+        _add_column_if_not_exists(
+            conn, "event_epg_groups", "custom_regex_date_enabled", "BOOLEAN DEFAULT 0"
+        )
         _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_time", "TEXT")
-        _add_column_if_not_exists(conn, "event_epg_groups", "custom_regex_time_enabled", "BOOLEAN DEFAULT 0")
+        _add_column_if_not_exists(
+            conn, "event_epg_groups", "custom_regex_time_enabled", "BOOLEAN DEFAULT 0"
+        )
         conn.execute("UPDATE settings SET schema_version = 8 WHERE id = 1")
         logger.info("Schema upgraded to version 8 (custom_regex_date/time)")
         current_version = 8

@@ -230,8 +230,7 @@ class TeamProcessor:
 
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 future_to_team = {
-                    executor.submit(self._process_team_parallel, team): team
-                    for team in espn_teams
+                    executor.submit(self._process_team_parallel, team): team for team in espn_teams
                 }
 
                 for future in as_completed(future_to_team):
@@ -344,9 +343,7 @@ class TeamProcessor:
 
         # Skip teams without a valid template
         if team.template_id is None:
-            logger.warning(
-                f"Skipping team '{team.team_name}': no template assigned"
-            )
+            logger.warning(f"Skipping team '{team.team_name}': no template assigned")
             result.errors.append("No template assigned - EPG generation requires a template")
             result.completed_at = datetime.now()
             return result
