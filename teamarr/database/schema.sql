@@ -587,7 +587,6 @@ INSERT OR REPLACE INTO leagues (league_code, provider, provider_league_id, provi
     -- fallback_league_id format: 'series_id/url-slug' (changes yearly - auto-discovered by cache refresh)
     ('ipl', 'tsdb', '4460', 'Indian Premier League', 'Indian Premier League', 'Cricket', 'https://r2.thesportsdb.com/images/media/league/badge/gaiti11741709844.png', NULL, 1, 'IPL', 'ipl', 'team_vs_team', NULL, 'cricbuzz', '9241/indian-premier-league-2026'),
     ('bbl', 'tsdb', '4461', 'Australian Big Bash League', 'Big Bash League', 'Cricket', 'https://r2.thesportsdb.com/images/media/league/badge/yko7ny1546635346.png', NULL, 1, 'BBL', 'bbl', 'team_vs_team', NULL, 'cricbuzz', '10289/big-bash-league-2025-26'),
-    ('bpl', 'tsdb', '5529', 'Bangladesh Premier League', 'Bangladesh Premier League', 'Cricket', 'https://www.thesportsdb.com/images/media/league/badge/o1xh521767355615.png', NULL, 1, 'BPL', 'bpl', 'team_vs_team', NULL, 'cricbuzz', '11328/bpl-2025-26'),
     ('sa20', 'tsdb', '5532', 'SA20', 'SA20', 'Cricket', 'https://r2.thesportsdb.com/images/media/league/badge/aakvuk1734183412.png', NULL, 1, 'SA20', 'sa20', 'team_vs_team', NULL, 'cricbuzz', '10394/sa20-2025-26'),
 
     -- Rugby League (TSDB)
@@ -600,7 +599,6 @@ INSERT OR REPLACE INTO leagues (league_code, provider, provider_league_id, provi
 -- These are used by cache refresh to find current season's series ID
 UPDATE leagues SET series_slug_pattern = 'indian-premier-league' WHERE league_code = 'ipl';
 UPDATE leagues SET series_slug_pattern = 'big-bash-league' WHERE league_code = 'bbl';
-UPDATE leagues SET series_slug_pattern = 'bpl' WHERE league_code = 'bpl';
 UPDATE leagues SET series_slug_pattern = 'sa20' WHERE league_code = 'sa20';
 
 
