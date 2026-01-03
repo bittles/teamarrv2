@@ -689,31 +689,39 @@ export function Teams() {
         </div>
       )}
 
-      {/* Batch Operations Bar - V1 Style Compact */}
-      <div className="flex items-center justify-between bg-secondary border border-border rounded px-3 py-2">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="font-medium">Batch Operations</span>
-          <span className="text-muted-foreground">({selectedIds.size} selected)</span>
+      {/* Fixed Batch Operations Bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="container max-w-screen-xl mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">
+                {selectedIds.size} team{selectedIds.size > 1 ? "s" : ""} selected
+              </span>
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkToggleActive(true)}>
+                  Enable
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkToggleActive(false)}>
+                  Disable
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowBulkTemplate(true)}>
+                  Assign Template
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowBulkChannelId(true)}>
+                  Channel ID
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => setShowBulkDelete(true)}>
+                  <Trash2 className="h-3 w-3 mr-1" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" onClick={() => handleBulkToggleActive(true)} disabled={selectedIds.size === 0}>
-            Enable
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleBulkToggleActive(false)} disabled={selectedIds.size === 0}>
-            Disable
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowBulkTemplate(true)} disabled={selectedIds.size === 0}>
-            Assign Template
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowBulkChannelId(true)} disabled={selectedIds.size === 0}>
-            Channel ID
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => setShowBulkDelete(true)} disabled={selectedIds.size === 0}>
-            <Trash2 className="h-3 w-3 mr-1" />
-            Delete
-          </Button>
-        </div>
-      </div>
+      )}
 
       {/* Teams Table - No card wrapper for more compact look */}
       <div className="border border-border rounded-lg overflow-hidden">
