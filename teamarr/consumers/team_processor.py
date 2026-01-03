@@ -276,6 +276,14 @@ class TeamProcessor:
                 f"{len(tsdb_leagues)} leagues sequentially"
             )
 
+            # Report that we're warming cache (this can take a while)
+            if progress_callback:
+                progress_callback(
+                    processed_count,
+                    total_teams,
+                    f"Warming TSDB cache ({len(tsdb_leagues)} leagues)...",
+                )
+
             # Pre-warm TSDB cache for all leagues (2 API calls per league)
             # This ensures cache hits when processing individual teams
             self._service.prewarm_tsdb_leagues(list(tsdb_leagues))

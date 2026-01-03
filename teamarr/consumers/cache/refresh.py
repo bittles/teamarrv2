@@ -16,12 +16,22 @@ from .queries import TeamLeagueCache
 
 logger = logging.getLogger(__name__)
 
+# Expected league counts per provider (for progress estimation)
+# These are approximate and used for work-proportional progress allocation
+EXPECTED_LEAGUES = {
+    "espn": 280,  # ~52 configured + ~228 discovered soccer leagues
+    "tsdb": 15,
+    "hockeytech": 6,
+}
+
 
 class CacheRefresher:
     """Refreshes team and league cache from providers."""
 
     # Max parallel requests
     MAX_WORKERS = 50
+    # Update progress every N leagues
+    PROGRESS_UPDATE_INTERVAL = 5
 
     def __init__(self, db_factory: Callable = get_db) -> None:
         self._db = db_factory
@@ -98,24 +108,37 @@ class CacheRefresher:
                     "error": "No providers registered",
                 }
 
-            # Calculate progress chunks per provider
-            # Reserve 5% for start, 5% for saving
-            progress_per_provider = 90 // num_providers
+            # Calculate work-proportional progress allocation
+            # Reserve 5% for start, 5% for saving = 90% for discovery
+            total_expected_leagues = sum(
+                EXPECTED_LEAGUES.get(p.name, 10) for p in providers
+            )
 
-            for i, provider in enumerate(providers):
-                base_progress = 5 + (i * progress_per_provider)
-                report(f"Fetching from {provider.name}...", base_progress)
+            # Calculate progress ranges per provider based on expected work
+            provider_progress: list[tuple[SportsProvider, int, int]] = []
+            current_pct = 5  # Start at 5%
+            for provider in providers:
+                expected = EXPECTED_LEAGUES.get(provider.name, 10)
+                # Proportional share of the 90% discovery budget
+                share = int(90 * expected / total_expected_leagues)
+                end_pct = min(current_pct + share, 95)
+                provider_progress.append((provider, current_pct, end_pct))
+                current_pct = end_pct
+
+            for provider, start_pct, end_pct in provider_progress:
+                report(f"Fetching from {provider.name}...", start_pct)
 
                 # Create progress callback with captured values
-                def make_progress_callback(bp: int, ppp: int) -> Callable[[str, int], None]:
+                def make_progress_callback(sp: int, ep: int) -> Callable[[str, int], None]:
                     def callback(msg: str, pct: int) -> None:
-                        actual_pct = bp + int(pct * ppp / 100)
+                        # Map 0-100% within this provider to start_pct-end_pct
+                        actual_pct = sp + int(pct * (ep - sp) / 100)
                         report(msg, actual_pct)
 
                     return callback
 
                 leagues, teams = self._discover_from_provider(
-                    provider, make_progress_callback(base_progress, progress_per_provider)
+                    provider, make_progress_callback(start_pct, end_pct)
                 )
                 all_leagues.extend(leagues)
                 all_teams.extend(teams)
@@ -205,7 +228,9 @@ class CacheRefresher:
 
         # For ESPN, also discover dynamic soccer leagues
         if provider_name == "espn":
-            soccer_slugs = self._fetch_espn_soccer_league_slugs()
+            if progress_callback:
+                progress_callback("Discovering ESPN soccer leagues...", 0)
+            soccer_slugs = self._fetch_espn_soccer_league_slugs(progress_callback)
             # Add soccer leagues not already in supported_leagues
             for slug in soccer_slugs:
                 if slug not in supported_leagues:
@@ -296,7 +321,8 @@ class CacheRefresher:
 
             for future in as_completed(futures):
                 completed += 1
-                if progress_callback and completed % 20 == 0:
+                # Report progress for every league (real-time streaming)
+                if progress_callback:
                     pct = int((completed / total) * 100)
                     progress_callback(f"{provider_name}: {completed}/{total} leagues", pct)
 
@@ -344,7 +370,9 @@ class CacheRefresher:
         # Default fallback
         return "sports"
 
-    def _fetch_espn_soccer_league_slugs(self) -> list[str]:
+    def _fetch_espn_soccer_league_slugs(
+        self, progress_callback: Callable[[str, int], None] | None = None
+    ) -> list[str]:
         """Fetch all ESPN soccer league slugs."""
         import httpx
 
@@ -359,6 +387,8 @@ class CacheRefresher:
             # Extract league refs and fetch slugs
             league_refs = data.get("items", [])
             slugs = []
+            total = len(league_refs)
+            completed = 0
 
             def fetch_slug(ref_url: str) -> str | None:
                 try:
@@ -379,6 +409,14 @@ class CacheRefresher:
                 }
 
                 for future in as_completed(futures):
+                    completed += 1
+                    # Report progress during discovery (maps to 0-10% of provider range)
+                    if progress_callback and completed % 5 == 0:
+                        discovery_pct = int((completed / total) * 10)  # 0-10%
+                        progress_callback(
+                            f"Discovering soccer leagues: {completed}/{total}", discovery_pct
+                        )
+
                     slug = future.result()
                     if slug and self._should_include_soccer_league(slug):
                         slugs.append(slug)
@@ -403,7 +441,7 @@ class CacheRefresher:
         return True
 
     def _save_cache(self, teams: list[dict], leagues: list[dict]) -> None:
-        """Save teams and leagues to database."""
+        """Save teams and leagues to database using batch inserts."""
         now = datetime.utcnow().isoformat() + "Z"
 
         with self._db() as conn:
@@ -413,25 +451,28 @@ class CacheRefresher:
             cursor.execute("DELETE FROM team_cache")
             cursor.execute("DELETE FROM league_cache")
 
-            # Insert leagues
-            for league in leagues:
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO league_cache
-                    (league_slug, provider, league_name, sport, logo_url,
-                     team_count, last_refreshed)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        league["league_slug"],
-                        league["provider"],
-                        league.get("league_name"),
-                        league["sport"],
-                        league.get("logo_url"),
-                        league.get("team_count", 0),
-                        now,
-                    ),
+            # Batch insert leagues using executemany (much faster than one-by-one)
+            league_data = [
+                (
+                    league["league_slug"],
+                    league["provider"],
+                    league.get("league_name"),
+                    league["sport"],
+                    league.get("logo_url"),
+                    league.get("team_count", 0),
+                    now,
                 )
+                for league in leagues
+            ]
+            cursor.executemany(
+                """
+                INSERT OR REPLACE INTO league_cache
+                (league_slug, provider, league_name, sport, logo_url,
+                 team_count, last_refreshed)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                league_data,
+            )
 
             # Deduplicate teams by (provider, provider_team_id, league)
             # Skip teams without names (required field)
@@ -446,27 +487,30 @@ class CacheRefresher:
                     seen.add(key)
                     unique_teams.append(team)
 
-            # Insert teams
-            for team in unique_teams:
-                cursor.execute(
-                    """
-                    INSERT INTO team_cache
-                    (team_name, team_abbrev, team_short_name, provider,
-                     provider_team_id, league, sport, logo_url, last_seen)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        team["team_name"],
-                        team.get("team_abbrev"),
-                        team.get("team_short_name"),
-                        team["provider"],
-                        team["provider_team_id"],
-                        team["league"],
-                        team["sport"],
-                        team.get("logo_url"),
-                        now,
-                    ),
+            # Batch insert teams using executemany (much faster than one-by-one)
+            team_data = [
+                (
+                    team["team_name"],
+                    team.get("team_abbrev"),
+                    team.get("team_short_name"),
+                    team["provider"],
+                    team["provider_team_id"],
+                    team["league"],
+                    team["sport"],
+                    team.get("logo_url"),
+                    now,
                 )
+                for team in unique_teams
+            ]
+            cursor.executemany(
+                """
+                INSERT INTO team_cache
+                (team_name, team_abbrev, team_short_name, provider,
+                 provider_team_id, league, sport, logo_url, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                team_data,
+            )
 
             # Update cached_team_count in the leagues table for configured leagues
             self._update_leagues_team_counts(cursor, leagues)
@@ -650,7 +694,8 @@ class CacheRefresher:
 
                 # Get all leagues from cache for this team
                 cache_cursor = conn.execute(
-                    "SELECT DISTINCT league FROM team_cache WHERE provider = ? AND provider_team_id = ? AND sport = 'soccer'",
+                    """SELECT DISTINCT league FROM team_cache
+                    WHERE provider = ? AND provider_team_id = ? AND sport = 'soccer'""",
                     (provider, provider_team_id),
                 )
                 cache_leagues = [row["league"] for row in cache_cursor.fetchall()]
@@ -664,7 +709,8 @@ class CacheRefresher:
                     )
                     updated += 1
                     logger.debug(
-                        f"Updated soccer team {team_id}: {len(current_leagues)} -> {len(all_leagues)} leagues"
+                        f"Updated soccer team {team_id}: "
+                        f"{len(current_leagues)} -> {len(all_leagues)} leagues"
                     )
 
             if updated > 0:

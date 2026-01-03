@@ -2,16 +2,29 @@
 
 Provides endpoints for cache management:
 - GET /cache/status - Get cache statistics
-- POST /cache/refresh - Trigger cache refresh
+- POST /cache/refresh - Trigger cache refresh (SSE streaming)
+- GET /cache/refresh/status - Get refresh progress
 - GET /cache/leagues - List cached leagues
 - GET /cache/teams/search - Search teams by name
 - GET /cache/candidate-leagues - Find candidate leagues for a matchup
 """
 
+import json
 import logging
+import queue
+import threading
 
-from fastapi import APIRouter, BackgroundTasks, Query
+from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 
+from teamarr.api.cache_refresh_status import (
+    complete_refresh,
+    fail_refresh,
+    get_refresh_status,
+    is_refresh_in_progress,
+    start_refresh,
+    update_refresh_status,
+)
 from teamarr.database import get_db
 from teamarr.services import create_cache_service
 
@@ -42,38 +55,119 @@ def get_cache_status() -> dict:
     }
 
 
-@router.post("/refresh")
-def trigger_refresh(background_tasks: BackgroundTasks) -> dict:
-    """Trigger a cache refresh from all providers.
-
-    This runs in the background. Check /cache/status for progress.
+@router.get("/refresh/status")
+def get_refresh_progress() -> dict:
+    """Get current cache refresh progress.
 
     Returns:
-        Acknowledgement that refresh was started
+        Current refresh status including percent, message, phase
     """
-    cache_service = create_cache_service(get_db)
-    stats = cache_service.get_stats()
+    return get_refresh_status()
 
-    if stats.refresh_in_progress:
-        return {
-            "status": "already_running",
-            "message": "Cache refresh is already in progress",
-        }
 
-    def run_refresh():
-        svc = create_cache_service(get_db)
-        result = svc.refresh()
-        logger.info(
-            f"Cache refresh completed: leagues={result.leagues_added}, teams={result.teams_added}"
+@router.post("/refresh")
+def trigger_refresh():
+    """Trigger a cache refresh from all providers with SSE progress streaming.
+
+    Streams real-time progress updates via Server-Sent Events.
+    Frontend should connect with EventSource to receive updates.
+
+    Returns:
+        SSE stream with progress updates
+    """
+    # Check if already in progress
+    if is_refresh_in_progress():
+        err = {"status": "error", "message": "Cache refresh already in progress"}
+        return StreamingResponse(
+            iter([f"data: {json.dumps(err)}\n\n"]),
+            media_type="text/event-stream",
         )
 
-    # Run in background thread
-    background_tasks.add_task(run_refresh)
+    # Mark as started
+    if not start_refresh():
+        err = {"status": "error", "message": "Failed to start cache refresh"}
+        return StreamingResponse(
+            iter([f"data: {json.dumps(err)}\n\n"]),
+            media_type="text/event-stream",
+        )
 
-    return {
-        "status": "started",
-        "message": "Cache refresh started in background",
-    }
+    # Queue for progress updates
+    progress_queue: queue.Queue = queue.Queue()
+
+    def generate():
+        """Generator function for SSE stream."""
+
+        def run_refresh():
+            """Run cache refresh in background thread."""
+            try:
+                svc = create_cache_service(get_db)
+
+                # Progress callback that updates status and queues for SSE
+                def progress_callback(message: str, percent: int) -> None:
+                    update_refresh_status(
+                        status="progress",
+                        message=message,
+                        percent=percent,
+                    )
+                    progress_queue.put(get_refresh_status())
+
+                result = svc.refresh(progress_callback=progress_callback)
+
+                if result.get("success"):
+                    complete_refresh(
+                        {
+                            "success": True,
+                            "leagues_count": result.get("leagues_count", 0),
+                            "teams_count": result.get("teams_count", 0),
+                            "duration_seconds": result.get("duration_seconds", 0),
+                        }
+                    )
+                else:
+                    fail_refresh(result.get("error", "Unknown error"))
+
+                progress_queue.put(get_refresh_status())
+
+            except Exception as e:
+                logger.exception("Cache refresh failed")
+                fail_refresh(str(e))
+                progress_queue.put(get_refresh_status())
+
+            finally:
+                progress_queue.put({"_done": True})
+
+        # Start refresh thread
+        refresh_thread = threading.Thread(target=run_refresh, daemon=True)
+        refresh_thread.start()
+
+        # Stream progress updates
+        while True:
+            try:
+                data = progress_queue.get(timeout=0.5)
+
+                if data.get("_done"):
+                    break
+
+                yield f"data: {json.dumps(data)}\n\n"
+
+            except queue.Empty:
+                # Send heartbeat to keep connection alive
+                yield ": heartbeat\n\n"
+
+        # Wait for thread to complete
+        refresh_thread.join(timeout=5)
+
+        # Send final status
+        yield f"data: {json.dumps(get_refresh_status())}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("/leagues")

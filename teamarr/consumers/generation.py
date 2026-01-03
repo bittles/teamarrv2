@@ -7,9 +7,10 @@ Both the streaming API endpoint and the background scheduler call this.
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +72,12 @@ def run_full_generation(
 
     Workflow:
     1. Refresh M3U accounts (0-5%)
-    2. Process all teams (5-45%)
-    3. Process all event groups (45-80%)
-    4. Merge and save XMLTV (80-85%)
-    5. Dispatcharr EPG refresh + channel association (85-90%)
-    6. Process scheduled deletions (90-93%)
-    7. Run reconciliation (93-96%)
-    8. Cleanup old history (96-100%)
+    2. Process all teams (5-50%) - 45% budget
+    3. Process all event groups (50-95%) - 45% budget
+    4. Merge and save XMLTV (95-96%)
+    5. Dispatcharr EPG refresh + channel association (96-98%)
+    6. Process scheduled deletions (98-99%)
+    7. Run reconciliation + cleanup (99-100%)
 
     Args:
         db_factory: Factory function returning database connection context manager
@@ -152,11 +152,12 @@ def run_full_generation(
         if dispatcharr_client:
             result.m3u_refresh = _refresh_m3u_accounts(db_factory, dispatcharr_client)
 
-        # Step 2: Process all teams (5-45%)
+        # Step 2: Process all teams (5-50%) - 45% budget
         update_progress("teams", 5, "Processing teams...")
 
         def team_progress(current: int, total: int, name: str):
-            pct = 5 + int((current / total) * 40) if total > 0 else 5
+            # Maps 0-100% within teams to 5-50% overall
+            pct = 5 + int((current / total) * 45) if total > 0 else 5
             msg = f"Processing {name} ({current}/{total})"
             update_progress("teams", pct, msg, current, total, name)
 
@@ -164,11 +165,12 @@ def run_full_generation(
         result.teams_processed = team_result.teams_processed
         result.teams_programmes = team_result.total_programmes
 
-        # Step 3: Process all event groups (45-80%)
-        update_progress("groups", 45, "Processing event groups...")
+        # Step 3: Process all event groups (50-95%) - 45% budget
+        update_progress("groups", 50, "Processing event groups...")
 
         def group_progress(current: int, total: int, name: str):
-            pct = 45 + int((current / total) * 35) if total > 0 else 45
+            # Maps 0-100% within groups to 50-95% overall
+            pct = 50 + int((current / total) * 45) if total > 0 else 50
             msg = f"Processing {name} ({current}/{total})"
             update_progress("groups", pct, msg, current, total, name)
 
@@ -181,8 +183,8 @@ def run_full_generation(
         result.groups_programmes = group_result.total_programmes
         result.programmes_total = result.teams_programmes + result.groups_programmes
 
-        # Step 4: Merge and save XMLTV (80-85%)
-        update_progress("saving", 80, "Saving XMLTV...")
+        # Step 4: Merge and save XMLTV (95-96%)
+        update_progress("saving", 95, "Saving XMLTV...")
 
         xmltv_contents: list[str] = []
         with db_factory() as conn:
@@ -210,9 +212,9 @@ def run_full_generation(
             dispatcharr_client=dispatcharr_client,
         )
 
-        # Step 5: Dispatcharr EPG refresh + channel association (85-90%)
+        # Step 5: Dispatcharr EPG refresh + channel association (96-98%)
         if dispatcharr_client and dispatcharr_settings.epg_id:
-            update_progress("dispatcharr", 85, "Refreshing Dispatcharr EPG...")
+            update_progress("dispatcharr", 96, "Refreshing Dispatcharr EPG...")
             epg_manager = EPGManager(dispatcharr_client)
             # Increased timeout from 60s to 120s for large EPGs
             refresh_result = epg_manager.wait_for_refresh(dispatcharr_settings.epg_id, timeout=120)
@@ -222,13 +224,13 @@ def run_full_generation(
                 "duration": refresh_result.duration,
             }
 
-            update_progress("dispatcharr", 88, "Associating EPG with channels...")
+            update_progress("dispatcharr", 97, "Associating EPG with channels...")
             result.epg_association = lifecycle_service.associate_epg_with_channels(
                 dispatcharr_settings.epg_id
             )
 
-        # Step 6: Process scheduled deletions (90-93%)
-        update_progress("lifecycle", 90, "Processing scheduled deletions...")
+        # Step 6: Process scheduled deletions (98-99%)
+        update_progress("lifecycle", 98, "Processing scheduled deletions...")
         channels_deleted_count = 0
         try:
             deletion_result = lifecycle_service.process_scheduled_deletions()
@@ -243,8 +245,8 @@ def run_full_generation(
             logger.warning(f"Scheduled deletions failed: {e}")
             result.deletions = {"error": str(e)}
 
-        # Step 7: Run reconciliation (93-96%)
-        update_progress("reconciliation", 93, "Running reconciliation...")
+        # Step 7: Run reconciliation + cleanup (99-100%)
+        update_progress("reconciliation", 99, "Running reconciliation...")
         try:
             with db_factory() as conn:
                 recon_settings = get_reconciliation_settings(conn)
@@ -258,8 +260,8 @@ def run_full_generation(
             logger.warning(f"Reconciliation failed: {e}")
             result.reconciliation = {"error": str(e)}
 
-        # Step 8: Cleanup old history (96-100%)
-        update_progress("cleanup", 96, "Cleaning up history...")
+        # Cleanup old history (part of step 7)
+        update_progress("cleanup", 99, "Cleaning up history...")
         try:
             with db_factory() as conn:
                 cleanup_settings = get_reconciliation_settings(conn)
