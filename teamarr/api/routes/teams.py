@@ -36,6 +36,51 @@ def _parse_leagues(leagues_str: str | None) -> list[str]:
         return []
 
 
+def _get_league_sport(conn, league_code: str) -> str | None:
+    """Get sport for a league from the database."""
+    cursor = conn.execute(
+        "SELECT sport FROM leagues WHERE league_code = ?",
+        (league_code,),
+    )
+    row = cursor.fetchone()
+    return row["sport"].lower() if row else None
+
+
+def _get_all_leagues_from_cache(conn, provider: str, provider_team_id: str, sport: str) -> list[str]:
+    """Get all leagues a team appears in from the cache for a given sport."""
+    cursor = conn.execute(
+        "SELECT DISTINCT league FROM team_cache WHERE provider = ? AND provider_team_id = ? AND sport = ?",
+        (provider, provider_team_id, sport),
+    )
+    return [row["league"] for row in cursor.fetchall()]
+
+
+def _can_consolidate_leagues(conn, league1: str, league2: str) -> bool:
+    """Check if two leagues can be consolidated (same team plays in both).
+
+    ONLY soccer teams play in multiple competitions (EPL + Champions League),
+    so only soccer leagues can consolidate.
+
+    All other sports (NFL, NCAAF, NHL, NBA, etc.) have separate teams per league
+    and ESPN reuses team IDs across leagues, so they must NOT be consolidated.
+
+    Returns:
+        True if leagues can share a team, False if they must be separate.
+    """
+    if league1 == league2:
+        return True
+
+    # Only soccer leagues can consolidate across competitions
+    sport1 = _get_league_sport(conn, league1)
+    sport2 = _get_league_sport(conn, league2)
+
+    if sport1 == "soccer" and sport2 == "soccer":
+        return True
+
+    # All other sports: do not consolidate
+    return False
+
+
 def _row_to_response(row) -> dict:
     """Convert database row to response dict with parsed leagues."""
     data = dict(row)
@@ -172,9 +217,12 @@ def delete_team(team_id: int):
 def bulk_import_teams(request: BulkImportRequest):
     """Bulk import teams from cache.
 
-    Consolidates by (provider, provider_team_id, sport):
+    Consolidates by (provider, provider_team_id, sport) when leagues are compatible:
+    - Soccer: teams play in multiple competitions, so all leagues consolidate
+    - American Football: NFL and college-football have overlapping IDs for different
+      teams, so they are NOT consolidated
     - New teams are created with their league in the leagues array
-    - Existing teams have new leagues added to their leagues array
+    - Existing teams have new leagues added if compatible
     - Skips when league already exists for the team
     """
     imported = 0
@@ -183,35 +231,86 @@ def bulk_import_teams(request: BulkImportRequest):
 
     with get_db() as conn:
         # Get existing teams indexed by (provider, provider_team_id, sport)
+        # Store list of (team_id, leagues) since multiple teams may share the key
+        # when leagues are incompatible (e.g., NFL vs college-football)
         cursor = conn.execute("SELECT id, provider, provider_team_id, sport, leagues FROM teams")
-        existing: dict[tuple[str, str, str], tuple[int, list[str]]] = {}
+        existing: dict[tuple[str, str, str], list[tuple[int, list[str]]]] = {}
         for row in cursor.fetchall():
             key = (row["provider"], row["provider_team_id"], row["sport"])
             leagues = _parse_leagues(row["leagues"])
-            existing[key] = (row["id"], leagues)
+            if key not in existing:
+                existing[key] = []
+            existing[key].append((row["id"], leagues))
 
         for team in request.teams:
             key = (team.provider, team.provider_team_id, team.sport)
 
-            if key in existing:
-                # Team exists - check if this league needs to be added
-                team_id, current_leagues = existing[key]
-                if team.league in current_leagues:
-                    skipped += 1
-                    continue
-
-                # Add the new league to the existing team
-                new_leagues = sorted(set(current_leagues + [team.league]))
-                conn.execute(
-                    "UPDATE teams SET leagues = ? WHERE id = ?",
-                    (json.dumps(new_leagues), team_id),
+            # For soccer, auto-discover all leagues from cache
+            is_soccer = team.sport.lower() == "soccer"
+            if is_soccer:
+                all_leagues = _get_all_leagues_from_cache(
+                    conn, team.provider, team.provider_team_id, team.sport
                 )
-                existing[key] = (team_id, new_leagues)
-                updated += 1
+                # Ensure the requested league is included
+                if team.league not in all_leagues:
+                    all_leagues.append(team.league)
+            else:
+                all_leagues = [team.league]
+
+            if key in existing:
+                # Check if any existing team with this key can accept this league
+                found_compatible = False
+                for i, (team_id, current_leagues) in enumerate(existing[key]):
+                    # Check if new league is compatible with existing leagues
+                    if all(_can_consolidate_leagues(conn, team.league, lg) for lg in current_leagues):
+                        # Check which leagues are actually new
+                        new_to_add = [lg for lg in all_leagues if lg not in current_leagues]
+                        if not new_to_add:
+                            skipped += 1
+                        else:
+                            # Add all new leagues to the existing team
+                            new_leagues = sorted(set(current_leagues + all_leagues))
+                            conn.execute(
+                                "UPDATE teams SET leagues = ? WHERE id = ?",
+                                (json.dumps(new_leagues), team_id),
+                            )
+                            existing[key][i] = (team_id, new_leagues)
+                            updated += 1
+                        found_compatible = True
+                        break
+
+                if not found_compatible:
+                    # No compatible team found - create new team
+                    channel_id = generate_channel_id(team.team_name, team.league)
+                    leagues_json = json.dumps(sorted(all_leagues))
+
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO teams (
+                            provider, provider_team_id, primary_league, leagues, sport,
+                            team_name, team_abbrev, team_logo_url,
+                            channel_id, active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        """,
+                        (
+                            team.provider,
+                            team.provider_team_id,
+                            team.league,
+                            leagues_json,
+                            team.sport,
+                            team.team_name,
+                            team.team_abbrev,
+                            team.logo_url,
+                            channel_id,
+                        ),
+                    )
+                    new_team_id = cursor.lastrowid
+                    existing[key].append((new_team_id, all_leagues))
+                    imported += 1
             else:
                 # New team - create with this league as primary
                 channel_id = generate_channel_id(team.team_name, team.league)
-                leagues_json = json.dumps([team.league])
+                leagues_json = json.dumps(sorted(all_leagues))
 
                 cursor = conn.execute(
                     """
@@ -234,7 +333,7 @@ def bulk_import_teams(request: BulkImportRequest):
                     ),
                 )
                 team_id = cursor.lastrowid
-                existing[key] = (team_id, [team.league])
+                existing[key] = [(team_id, all_leagues)]
                 imported += 1
 
     return BulkImportResponse(imported=imported, updated=updated, skipped=skipped)
