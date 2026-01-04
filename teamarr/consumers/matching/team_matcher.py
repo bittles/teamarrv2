@@ -333,6 +333,7 @@ class TeamMatcher:
         event = self._reconstruct_event(entry.cached_data)
         if not event:
             # Cache entry is invalid
+            logger.debug(f"Cache invalid: failed to reconstruct event for stream={ctx.stream_id}")
             self._cache.delete(ctx.group_id, ctx.stream_id, ctx.stream_name)
             return None
 
@@ -342,12 +343,13 @@ class TeamMatcher:
         event_date = event.start_time.astimezone(ctx.user_tz).date()
         if event_date < ctx.target_date:
             # Event is from a previous day - invalidate cache to get fresh status
+            logger.debug(f"Cache stale: event from {event_date} < target {ctx.target_date}")
             return None
 
         # Today's events: use cache (final status handled in _outcome_to_result)
         if event_date != ctx.target_date:
+            logger.debug(f"Cache mismatch: event from {event_date} != target {ctx.target_date}")
             return None
-
         return MatchOutcome.matched(
             MatchMethod.CACHE,
             event,
@@ -357,6 +359,7 @@ class TeamMatcher:
             stream_id=ctx.stream_id,
             parsed_team1=ctx.team1,
             parsed_team2=ctx.team2,
+            origin_match_method=entry.match_method,  # Original method (fuzzy, alias, etc.)
         )
 
     def _match_against_events(
@@ -620,6 +623,9 @@ class TeamMatcher:
 
         cached_data = event_to_cache_data(result.event)
 
+        # Store the original match method so we can show "Cache (origin: fuzzy)" etc.
+        match_method_value = result.match_method.value if result.match_method else None
+
         self._cache.set(
             group_id=ctx.group_id,
             stream_id=ctx.stream_id,
@@ -628,6 +634,7 @@ class TeamMatcher:
             league=result.detected_league or result.event.league,
             cached_data=cached_data,
             generation=ctx.generation,
+            match_method=match_method_value,
         )
 
     def _reconstruct_event(self, cached_data: dict[str, Any]) -> Event | None:

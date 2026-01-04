@@ -187,6 +187,7 @@ export interface MatchedStream {
   from_cache: boolean
   match_method: string | null
   confidence: number | null
+  origin_match_method: string | null  // For cache hits: original method used
   created_at: string
 }
 

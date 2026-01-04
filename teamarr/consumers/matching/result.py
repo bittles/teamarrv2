@@ -153,6 +153,7 @@ class MatchOutcome:
     event: Event | None = None
     detected_league: str | None = None
     confidence: float = 0.0  # 0.0 to 1.0, relevant for fuzzy matches
+    origin_match_method: str | None = None  # For CACHE hits: original method (e.g., "fuzzy")
 
     # Common fields
     stream_name: str | None = None
@@ -223,8 +224,21 @@ class MatchOutcome:
         stream_id: int | None = None,
         parsed_team1: str | None = None,
         parsed_team2: str | None = None,
+        origin_match_method: str | None = None,
     ) -> "MatchOutcome":
-        """Create a MATCHED result."""
+        """Create a MATCHED result.
+
+        Args:
+            method: How the match was made (CACHE, FUZZY, ALIAS, etc.)
+            event: The matched event
+            detected_league: League code
+            confidence: Match confidence (0.0 to 1.0)
+            stream_name: Original stream name
+            stream_id: Stream ID
+            parsed_team1: First parsed team name
+            parsed_team2: Second parsed team name
+            origin_match_method: For CACHE hits, the original method used (e.g., "fuzzy")
+        """
         return cls(
             category=ResultCategory.MATCHED,
             match_method=method,
@@ -235,6 +249,7 @@ class MatchOutcome:
             stream_id=stream_id,
             parsed_team1=parsed_team1,
             parsed_team2=parsed_team2,
+            origin_match_method=origin_match_method,
         )
 
     @property

@@ -180,6 +180,7 @@ class EventCardMatcher:
             confidence=1.0,
             stream_name=ctx.stream_name,
             stream_id=ctx.stream_id,
+            origin_match_method=entry.match_method,  # Original method
         )
 
     def _match_to_event_card(
@@ -317,6 +318,9 @@ class EventCardMatcher:
 
         cached_data = event_to_cache_data(result.event)
 
+        # Store the original match method so we can show "Cache (origin: fuzzy)" etc.
+        match_method_value = result.match_method.value if result.match_method else None
+
         self._cache.set(
             group_id=ctx.group_id,
             stream_id=ctx.stream_id,
@@ -325,4 +329,5 @@ class EventCardMatcher:
             league=result.detected_league or result.event.league,
             cached_data=cached_data,
             generation=ctx.generation,
+            match_method=match_method_value,
         )

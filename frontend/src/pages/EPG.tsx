@@ -893,7 +893,14 @@ export function EPG() {
                       </TableCell>
                       <TableCell>
                         {getMatchMethodBadge(stream.match_method)}
-                        {stream.from_cache && (
+                        {/* Show origin method for cache hits */}
+                        {stream.match_method === "cache" && stream.origin_match_method && (
+                          <span className="text-xs text-muted-foreground ml-1">
+                            (origin: {stream.origin_match_method})
+                          </span>
+                        )}
+                        {/* Only show Cached badge if method is not already 'cache' */}
+                        {stream.from_cache && stream.match_method !== "cache" && (
                           <Badge variant="outline" className="ml-1">Cached</Badge>
                         )}
                       </TableCell>

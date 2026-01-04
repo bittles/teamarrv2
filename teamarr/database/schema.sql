@@ -589,8 +589,9 @@ INSERT OR REPLACE INTO leagues (league_code, provider, provider_league_id, provi
     ('bbl', 'tsdb', '4461', 'Australian Big Bash League', 'Big Bash League', 'Cricket', 'https://r2.thesportsdb.com/images/media/league/badge/yko7ny1546635346.png', NULL, 1, 'BBL', 'bbl', 'team_vs_team', NULL, 'cricbuzz', '10289/big-bash-league-2025-26'),
     ('sa20', 'tsdb', '5532', 'SA20', 'SA20', 'Cricket', 'https://r2.thesportsdb.com/images/media/league/badge/aakvuk1734183412.png', NULL, 1, 'SA20', 'sa20', 'team_vs_team', NULL, 'cricbuzz', '10394/sa20-2025-26'),
 
-    -- Rugby League (TSDB)
-    ('nrl', 'tsdb', '4416', 'Australian National Rugby League', 'National Rugby League', 'Rugby', 'https://r2.thesportsdb.com/images/media/league/badge/gsztcj1552071996.png', NULL, 1, 'NRL', 'nrl', 'team_vs_team', NULL, NULL, NULL),
+    -- Rugby (TSDB)
+    ('nrl', 'tsdb', '4416', 'Australian National Rugby League', 'NRL', 'Rugby League', 'https://r2.thesportsdb.com/images/media/league/badge/gsztcj1552071996.png', NULL, 1, NULL, 'nrl', 'team_vs_team', NULL, NULL, NULL),
+    ('super-rugby', 'tsdb', '4551', 'Super Rugby', 'Super Rugby Pacific', 'Rugby Union', 'https://r2.thesportsdb.com/images/media/league/badge/alpxhe1675871443.png', NULL, 1, 'Super Rugby', 'super-rugby', 'team_vs_team', NULL, NULL, NULL),
 
     -- Boxing (TSDB) - Combat sport with event cards
     ('boxing', 'tsdb', '4445', 'Boxing', 'Boxing', 'Boxing', NULL, NULL, 0, NULL, 'boxing', 'event_card', NULL, NULL, NULL);
@@ -1142,6 +1143,7 @@ CREATE TABLE IF NOT EXISTS epg_matched_streams (
     -- Enhanced matching info (Phase 7)
     match_method TEXT,  -- 'cache', 'user_corrected', 'alias', 'pattern', 'fuzzy', 'keyword', 'direct'
     confidence REAL,    -- Match confidence score 0.0-1.0
+    origin_match_method TEXT,  -- For cache hits: original method used (e.g., 'fuzzy')
 
     FOREIGN KEY (run_id) REFERENCES processing_runs(id) ON DELETE CASCADE,
     FOREIGN KEY (group_id) REFERENCES event_epg_groups(id) ON DELETE CASCADE

@@ -391,6 +391,9 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     # Migration: Add tsdb_api_key to settings table (pre-versioning)
     _add_column_if_not_exists(conn, "settings", "tsdb_api_key", "TEXT")
 
+    # Migration: Add origin_match_method to epg_matched_streams (for cache hit origin tracking)
+    _add_column_if_not_exists(conn, "epg_matched_streams", "origin_match_method", "TEXT")
+
     # Version 3: teams.league (TEXT) -> teams.primary_league + teams.leagues (JSON array)
     if current_version < 3:
         if _migrate_teams_to_leagues_array(conn):
