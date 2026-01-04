@@ -43,7 +43,7 @@ function ProgressDescription({ status }: { status: GenerationStatus | null }) {
   const isStreamProgress = itemName && (itemName.includes("✓") || itemName.includes("✗"))
 
   return (
-    <div className="space-y-2 mt-1 w-72">
+    <div className="space-y-2 mt-1 w-[432px]">
       {/* Progress bar - fixed width */}
       <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
         <div

@@ -1063,8 +1063,8 @@ class EventGroupProcessor:
                 # Fetch all streams if no group filter
                 streams = m3u_manager.list_streams()
 
-            # Convert to dicts for matcher
-            return [
+            # Convert to dicts for matcher (sorted by name for consistent order)
+            stream_dicts = [
                 {
                     "id": s.id,
                     "name": s.name,
@@ -1076,6 +1076,9 @@ class EventGroupProcessor:
                 }
                 for s in streams
             ]
+            # Sort by stream ID ascending for consistent processing order
+            stream_dicts.sort(key=lambda s: s["id"])
+            return stream_dicts
 
         except Exception as e:
             logger.error(f"Failed to fetch streams: {e}")
