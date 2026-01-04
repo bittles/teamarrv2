@@ -76,6 +76,16 @@ function getPhaseLabel(status: GenerationStatus | null): string {
       return "Processing Event Groups"
     case "saving":
       return "Saving XMLTV"
+    case "dispatcharr":
+      return "Syncing with Dispatcharr"
+    case "lifecycle":
+      return "Processing Channels"
+    case "reconciliation":
+      return "Running Reconciliation"
+    case "cleanup":
+      return "Cleaning Up"
+    case "complete":
+      return "Complete"
     default:
       return status.message || "Processing..."
   }
