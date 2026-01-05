@@ -139,8 +139,8 @@ export function MainLayout() {
           style: {
             padding: "12px 16px",
             fontSize: "14px",
-            width: "356px",
-            maxWidth: "356px",
+            width: "450px",
+            maxWidth: "450px",
             wordWrap: "break-word",
             overflowWrap: "break-word",
           },
