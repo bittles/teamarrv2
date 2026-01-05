@@ -177,6 +177,18 @@ class FillerGenerator:
         future_events = [e for e in events if event_date(e) > date]
         next_future_event = future_events[0] if future_events else None
 
+        # Debug logging for idle day .next context
+        if not day_events and next_future_event:
+            logger.debug(
+                f"Idle day {date}: next_future_event={next_future_event.name} on "
+                f"{event_date(next_future_event)} ({next_future_event.home_team.name} vs "
+                f"{next_future_event.away_team.name})"
+            )
+        elif not day_events and not next_future_event:
+            logger.debug(
+                f"Idle day {date}: NO next_future_event found. Total events in schedule: {len(events)}"
+            )
+
         # Find last completed event relative to THIS DAY (for .last context)
         # Important: use day_start (the EPG date) not epg_start (actual now)
         # This ensures .last refers to the most recent game before the programme being generated
@@ -529,6 +541,10 @@ class FillerGenerator:
         if next_event:
             next_game = self._build_game_context(
                 next_event, team_config.team_id, team_config.league
+            )
+            logger.debug(
+                f"Built next_game context: opponent={next_game.opponent.name if next_game.opponent else 'None'}, "
+                f"event={next_event.name}"
             )
 
         last_game = None
