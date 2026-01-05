@@ -24,6 +24,7 @@ class GroupCreate(BaseModel):
     """Create event EPG group request."""
 
     name: str = Field(..., min_length=1, max_length=100)
+    display_name: str | None = Field(None, max_length=100)  # Optional display name override
     leagues: list[str] = Field(..., min_length=1)
     parent_group_id: int | None = None
     template_id: int | None = None
@@ -61,6 +62,7 @@ class GroupUpdate(BaseModel):
     """Update event EPG group request."""
 
     name: str | None = Field(None, min_length=1, max_length=100)
+    display_name: str | None = Field(None, max_length=100)  # Optional display name override
     leagues: list[str] | None = None
     parent_group_id: int | None = None
     template_id: int | None = None
@@ -94,6 +96,7 @@ class GroupUpdate(BaseModel):
     enabled: bool | None = None
 
     # Clear flags for nullable fields
+    clear_display_name: bool = False
     clear_parent_group_id: bool = False
     clear_template: bool = False
     clear_channel_start_number: bool = False
@@ -116,6 +119,7 @@ class GroupResponse(BaseModel):
 
     id: int
     name: str
+    display_name: str | None = None  # Optional display name override for UI
     leagues: list[str]
     parent_group_id: int | None = None
     template_id: int | None = None
@@ -257,6 +261,7 @@ def list_groups(
             GroupResponse(
                 id=g.id,
                 name=g.name,
+                display_name=g.display_name,
                 leagues=g.leagues,
                 parent_group_id=g.parent_group_id,
                 template_id=g.template_id,
@@ -328,6 +333,7 @@ def create_group(request: GroupCreate):
             conn,
             name=request.name,
             leagues=request.leagues,
+            display_name=request.display_name,
             parent_group_id=request.parent_group_id,
             template_id=request.template_id,
             channel_start_number=request.channel_start_number,
@@ -363,6 +369,7 @@ def create_group(request: GroupCreate):
     return GroupResponse(
         id=group.id,
         name=group.name,
+        display_name=group.display_name,
         leagues=group.leagues,
         parent_group_id=group.parent_group_id,
         template_id=group.template_id,
@@ -422,6 +429,7 @@ def get_group_by_id(group_id: int):
     return GroupResponse(
         id=group.id,
         name=group.name,
+        display_name=group.display_name,
         leagues=group.leagues,
         parent_group_id=group.parent_group_id,
         template_id=group.template_id,
@@ -502,6 +510,7 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
             conn,
             group_id,
             name=request.name,
+            display_name=request.display_name,
             leagues=request.leagues,
             parent_group_id=request.parent_group_id,
             template_id=request.template_id,
@@ -531,6 +540,7 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
             channel_sort_order=request.channel_sort_order,
             overlap_handling=request.overlap_handling,
             enabled=request.enabled,
+            clear_display_name=request.clear_display_name,
             clear_parent_group_id=request.clear_parent_group_id,
             clear_template=request.clear_template,
             clear_channel_start_number=request.clear_channel_start_number,
@@ -554,6 +564,7 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
     return GroupResponse(
         id=group.id,
         name=group.name,
+        display_name=group.display_name,
         leagues=group.leagues,
         parent_group_id=group.parent_group_id,
         template_id=group.template_id,

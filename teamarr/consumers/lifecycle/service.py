@@ -1074,6 +1074,18 @@ class ChannelLifecycleService:
                 update_data["tvg_id"] = expected_tvg_id
                 changes_made.append(f"tvg_id: {current_channel.tvg_id} → {expected_tvg_id}")
 
+            # 6b. Recalculate scheduled_delete_at based on current settings
+            expected_delete_time = self._timing_manager.calculate_delete_time(event)
+            if expected_delete_time:
+                expected_delete_str = expected_delete_time.isoformat()
+                stored_delete_str = getattr(existing, "scheduled_delete_at", None)
+                # Compare as strings (both should be ISO format)
+                if stored_delete_str:
+                    stored_delete_str = str(stored_delete_str)
+                if expected_delete_str != stored_delete_str:
+                    db_updates["scheduled_delete_at"] = expected_delete_str
+                    changes_made.append(f"scheduled_delete_at updated")
+
             # Apply Dispatcharr updates
             if update_data:
                 with self._dispatcharr_lock:
@@ -1248,15 +1260,27 @@ class ChannelLifecycleService:
     def process_scheduled_deletions(self) -> StreamProcessResult:
         """Process all channels past their scheduled delete time.
 
+        First recalculates scheduled_delete_at for all active channels based on
+        current settings (handles settings changes), then deletes any that are past due.
+
         Returns:
             StreamProcessResult with deleted channels
         """
-        from teamarr.database.channels import get_channels_pending_deletion
+        from teamarr.database.channels import (
+            get_all_managed_channels,
+            get_channels_pending_deletion,
+            update_managed_channel,
+        )
 
         result = StreamProcessResult()
 
         try:
             with self._db_factory() as conn:
+                # Step 1: Recalculate scheduled_delete_at for all active channels
+                # This handles settings changes (e.g., day_after -> 6_hours_after)
+                self._recalculate_deletion_times(conn)
+
+                # Step 2: Get channels that are now past their delete time
                 channels = get_channels_pending_deletion(conn)
 
                 for channel in channels:
@@ -1291,6 +1315,90 @@ class ChannelLifecycleService:
             logger.info(f"Deleted {len(result.deleted)} expired channels")
 
         return result
+
+    def _recalculate_deletion_times(self, conn) -> int:
+        """Recalculate scheduled_delete_at for all active channels.
+
+        This handles settings changes (e.g., day_after -> 6_hours_after) by
+        recalculating deletion times based on current settings.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            Number of channels updated
+        """
+        from datetime import datetime, timedelta
+
+        from dateutil import parser
+
+        from teamarr.database.channels import get_all_managed_channels, update_managed_channel
+        from teamarr.utilities.sports import get_sport_duration
+        from teamarr.utilities.tz import to_user_tz
+
+        channels = get_all_managed_channels(conn, include_deleted=False)
+        updated_count = 0
+
+        # Get delete timing setting
+        delete_timing = self._timing_manager.delete_timing
+        sport_durations = self._timing_manager.sport_durations
+        default_duration = self._timing_manager.default_duration_hours
+
+        for channel in channels:
+            # Skip channels without event_date (can't calculate delete time)
+            if not channel.event_date:
+                continue
+
+            try:
+                # Parse event date
+                event_start = parser.parse(str(channel.event_date))
+                event_start = to_user_tz(event_start)
+
+                # Calculate event end time using sport-specific duration
+                sport = channel.sport or "other"
+                duration_hours = get_sport_duration(sport, sport_durations, default_duration)
+                event_end = event_start + timedelta(hours=duration_hours)
+
+                # Calculate delete threshold based on timing setting
+                end_date = event_end.date()
+                day_end = datetime.combine(
+                    end_date,
+                    datetime.max.time(),
+                ).replace(tzinfo=event_end.tzinfo)
+
+                timing_map = {
+                    "6_hours_after": event_end + timedelta(hours=6),
+                    "same_day": day_end,
+                    "day_after": day_end + timedelta(days=1),
+                    "2_days_after": day_end + timedelta(days=2),
+                    "3_days_after": day_end + timedelta(days=3),
+                    "1_week_after": day_end + timedelta(days=7),
+                }
+
+                expected_delete_time = timing_map.get(delete_timing)
+                if not expected_delete_time:
+                    continue
+
+                expected_delete_str = expected_delete_time.isoformat()
+                stored_delete_str = str(channel.scheduled_delete_at) if channel.scheduled_delete_at else None
+
+                # Update if different
+                if expected_delete_str != stored_delete_str:
+                    update_managed_channel(conn, channel.id, {"scheduled_delete_at": expected_delete_str})
+                    updated_count += 1
+                    logger.debug(
+                        f"Updated scheduled_delete_at for '{channel.channel_name}': "
+                        f"{stored_delete_str} -> {expected_delete_str}"
+                    )
+
+            except Exception as e:
+                logger.debug(f"Error recalculating delete time for channel {channel.id}: {e}")
+                continue
+
+        if updated_count > 0:
+            logger.info(f"Recalculated scheduled_delete_at for {updated_count} channels")
+
+        return updated_count
 
     def associate_epg_with_channels(self, epg_source_id: int | None = None) -> dict:
         """Associate EPG data with managed channels after EPG refresh.

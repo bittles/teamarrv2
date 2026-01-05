@@ -113,6 +113,7 @@ export function EventGroupForm() {
   // Form state
   const [formData, setFormData] = useState<EventGroupCreate>({
     name: m3uGroupName || "",
+    display_name: null,  // Optional display name override
     leagues: [],
     parent_group_id: null,
     template_id: null,
@@ -193,6 +194,7 @@ export function EventGroupForm() {
     if (group) {
       setFormData({
         name: group.name,
+        display_name: group.display_name,
         leagues: group.leagues,
         parent_group_id: group.parent_group_id,
         template_id: group.template_id,
@@ -770,6 +772,18 @@ export function EventGroupForm() {
                   />
                   <p className="text-xs text-muted-foreground">Name from M3U group</p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="display_name_child">Display Name (Optional)</Label>
+                  <Input
+                    id="display_name_child"
+                    value={formData.display_name || ""}
+                    onChange={(e) => setFormData({ ...formData, display_name: e.target.value || null })}
+                    placeholder="Override name for display in UI"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If set, this name will be shown instead of the M3U group name
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={formData.enabled}
@@ -798,6 +812,20 @@ export function EventGroupForm() {
                   />
                   <p className="text-xs text-muted-foreground">Name from M3U group</p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="display_name">Display Name (Optional)</Label>
+                  <Input
+                    id="display_name"
+                    value={formData.display_name || ""}
+                    onChange={(e) => setFormData({ ...formData, display_name: e.target.value || null })}
+                    placeholder="Override name for display in UI"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If set, shown instead of M3U group name
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 {!isChildGroup && (
                   <div className="space-y-2">
                     <Label htmlFor="template">Event Template</Label>

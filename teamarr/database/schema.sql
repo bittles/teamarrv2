@@ -271,6 +271,7 @@ CREATE TABLE IF NOT EXISTS event_epg_groups (
 
     -- Identity
     name TEXT NOT NULL UNIQUE,
+    display_name TEXT,                       -- Optional display name override for UI
 
     -- What to scan
     leagues JSON NOT NULL,                   -- ["nfl", "nba"] - leagues to scan for events

@@ -557,6 +557,14 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         logger.info("Schema upgraded to version 12 (removed per-group timing settings)")
         current_version = 12
 
+    # Version 13: Add display_name column to event_epg_groups
+    # Optional display name override for UI (prefers this over M3U group name)
+    if current_version < 13:
+        _add_column_if_not_exists(conn, "event_epg_groups", "display_name", "TEXT")
+        conn.execute("UPDATE settings SET schema_version = 13 WHERE id = 1")
+        logger.info("Schema upgraded to version 13 (event_epg_groups.display_name)")
+        current_version = 13
+
 
 def _remove_tvg_id_unique_constraint(conn: sqlite3.Connection) -> None:
     """Remove UNIQUE constraint from tvg_id column.

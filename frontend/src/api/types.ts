@@ -3,6 +3,7 @@
 export interface EventGroup {
   id: number
   name: string
+  display_name: string | null  // Optional display name override for UI
   leagues: string[]
   parent_group_id: number | null
   template_id: number | null
@@ -50,6 +51,7 @@ export interface EventGroup {
 
 export interface EventGroupCreate {
   name: string
+  display_name?: string | null  // Optional display name override
   leagues: string[]
   parent_group_id?: number | null
   template_id?: number | null
@@ -84,6 +86,7 @@ export interface EventGroupCreate {
 }
 
 export interface EventGroupUpdate extends Partial<EventGroupCreate> {
+  clear_display_name?: boolean
   clear_parent_group_id?: boolean
   clear_template?: boolean
   clear_channel_start_number?: boolean

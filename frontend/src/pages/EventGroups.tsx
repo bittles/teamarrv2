@@ -66,6 +66,9 @@ async function fetchChannelGroups(): Promise<{ id: number; name: string }[]> {
   return data.groups || []
 }
 
+// Helper to get display name (prefer display_name over name)
+const getDisplayName = (group: EventGroup) => group.display_name || group.name
+
 // Sport emoji mapping
 const SPORT_EMOJIS: Record<string, string> = {
   football: "🏈",
@@ -289,7 +292,7 @@ export function EventGroups() {
       let cmp = 0
       switch (sortColumn) {
         case "name":
-          cmp = a.name.localeCompare(b.name)
+          cmp = getDisplayName(a).localeCompare(getDisplayName(b))
           break
         case "sport": {
           const sportsA = a.leagues.map(l => leagueSports[l]).filter(Boolean).sort().join(",")
@@ -374,16 +377,16 @@ export function EventGroups() {
     // Per-group breakdowns for tooltips (all groups, not just parents)
     const streamsByGroup = groups
       .filter(g => (g.total_stream_count || 0) > 0)
-      .map(g => ({ name: g.name, count: g.total_stream_count || 0 }))
+      .map(g => ({ name: getDisplayName(g), count: g.total_stream_count || 0 }))
       .sort((a, b) => b.count - a.count)
     const eligibleByGroup = groups
       .filter(g => (g.stream_count || 0) > 0)
-      .map(g => ({ name: g.name, count: g.stream_count || 0 }))
+      .map(g => ({ name: getDisplayName(g), count: g.stream_count || 0 }))
       .sort((a, b) => b.count - a.count)
     const matchedByGroup = groups
       .filter(g => (g.stream_count || 0) > 0)
       .map(g => ({
-        name: g.name,
+        name: getDisplayName(g),
         count: g.matched_count || 0,
         rate: g.stream_count ? Math.round(((g.matched_count || 0) / g.stream_count) * 100) : 0,
       }))
@@ -422,7 +425,7 @@ export function EventGroups() {
         groupId: group.id,
         enabled: !group.enabled,
       })
-      toast.success(`${group.enabled ? "Disabled" : "Enabled"} group "${group.name}"`)
+      toast.success(`${group.enabled ? "Disabled" : "Enabled"} group "${getDisplayName(group)}"`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to toggle group")
     }
@@ -954,7 +957,7 @@ export function EventGroups() {
                           {isChild ? (
                             <div className="flex items-center gap-2 pl-4">
                               <span className="text-purple-400 font-bold">└</span>
-                              <span>{group.name}</span>
+                              <span>{getDisplayName(group)}</span>
                               {/* Account/Provider badge for child */}
                               {group.m3u_account_name && (
                                 <Badge
@@ -968,14 +971,14 @@ export function EventGroups() {
                               <Badge
                                 variant="outline"
                                 className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs italic"
-                                title={`Child of: ${parentGroup?.name}`}
+                                title={`Child of: ${parentGroup ? getDisplayName(parentGroup) : 'parent'}`}
                               >
-                                ↳ {parentGroup?.name ? (parentGroup.name.length > 15 ? parentGroup.name.slice(0, 15) + "…" : parentGroup.name) : "parent"}
+                                ↳ {parentGroup ? (getDisplayName(parentGroup).length > 15 ? getDisplayName(parentGroup).slice(0, 15) + "…" : getDisplayName(parentGroup)) : "parent"}
                               </Badge>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span>{group.name}</span>
+                              <span>{getDisplayName(group)}</span>
                               {/* AUTO badge */}
                               {isAuto && (
                                 <Badge
@@ -1215,7 +1218,7 @@ export function EventGroups() {
           <DialogHeader>
             <DialogTitle>Delete Event Group</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{deleteConfirm?.name}"? This will
+              Are you sure you want to delete "{deleteConfirm ? getDisplayName(deleteConfirm) : ''}"? This will
               also delete all {deleteConfirm?.channel_count ?? 0} managed
               channels associated with this group.
             </DialogDescription>

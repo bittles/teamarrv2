@@ -224,20 +224,45 @@ def get_managed_channels_for_group(
 def get_channels_pending_deletion(conn: Connection) -> list[ManagedChannel]:
     """Get channels past their scheduled delete time.
 
+    Uses Python datetime comparison to handle ISO format with timezone properly,
+    since SQLite's datetime('now') returns different format than stored values.
+
     Args:
         conn: Database connection
 
     Returns:
         List of ManagedChannel objects ready for deletion
     """
+    from datetime import datetime
+
+    from dateutil import parser
+
+    from teamarr.utilities.tz import now_user
+
+    # Get all active channels with scheduled_delete_at
     cursor = conn.execute(
         """SELECT * FROM managed_channels
            WHERE scheduled_delete_at IS NOT NULL
-             AND scheduled_delete_at <= datetime('now')
              AND deleted_at IS NULL
            ORDER BY scheduled_delete_at""",
     )
-    return [ManagedChannel.from_row(dict(row)) for row in cursor.fetchall()]
+
+    now = now_user()
+    pending = []
+
+    for row in cursor.fetchall():
+        channel = ManagedChannel.from_row(dict(row))
+        if channel.scheduled_delete_at:
+            try:
+                # Parse the stored delete time (ISO format with timezone)
+                delete_time = parser.parse(str(channel.scheduled_delete_at))
+                if now >= delete_time:
+                    pending.append(channel)
+            except (ValueError, TypeError):
+                # If parsing fails, skip this channel
+                pass
+
+    return pending
 
 
 def get_all_managed_channels(

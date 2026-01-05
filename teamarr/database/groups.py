@@ -15,7 +15,8 @@ class EventEPGGroup:
 
     id: int
     name: str
-    leagues: list[str]
+    display_name: str | None = None  # Optional display name override for UI
+    leagues: list[str] = field(default_factory=list)
     template_id: int | None = None
     channel_start_number: int | None = None
     channel_group_id: int | None = None
@@ -93,6 +94,7 @@ def _row_to_group(row) -> EventEPGGroup:
     return EventEPGGroup(
         id=row["id"],
         name=row["name"],
+        display_name=row["display_name"] if "display_name" in row.keys() else None,
         leagues=leagues,
         template_id=row["template_id"],
         channel_start_number=row["channel_start_number"],
@@ -228,6 +230,7 @@ def create_group(
     conn: Connection,
     name: str,
     leagues: list[str],
+    display_name: str | None = None,
     template_id: int | None = None,
     channel_start_number: int | None = None,
     channel_group_id: int | None = None,
@@ -296,7 +299,7 @@ def create_group(
 
     cursor = conn.execute(
         """INSERT INTO event_epg_groups (
-            name, leagues, template_id, channel_start_number,
+            name, display_name, leagues, template_id, channel_start_number,
             channel_group_id, stream_profile_id, channel_profile_ids,
             duplicate_event_handling, channel_assignment_mode, sort_order,
             total_stream_count, parent_group_id, m3u_group_id, m3u_group_name,
@@ -307,9 +310,10 @@ def create_group(
             custom_regex_date, custom_regex_date_enabled,
             custom_regex_time, custom_regex_time_enabled,
             skip_builtin_filter, channel_sort_order, overlap_handling, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             name,
+            display_name,
             json.dumps(leagues),
             template_id,
             channel_start_number,
@@ -353,6 +357,7 @@ def update_group(
     conn: Connection,
     group_id: int,
     name: str | None = None,
+    display_name: str | None = None,
     leagues: list[str] | None = None,
     template_id: int | None = None,
     channel_start_number: int | None = None,
@@ -385,6 +390,7 @@ def update_group(
     overlap_handling: str | None = None,
     enabled: bool | None = None,
     # Clear flags
+    clear_display_name: bool = False,
     clear_template: bool = False,
     clear_channel_start_number: bool = False,
     clear_channel_group_id: bool = False,
@@ -421,6 +427,12 @@ def update_group(
     if name is not None:
         updates.append("name = ?")
         values.append(name)
+
+    if display_name is not None:
+        updates.append("display_name = ?")
+        values.append(display_name)
+    elif clear_display_name:
+        updates.append("display_name = NULL")
 
     if leagues is not None:
         updates.append("leagues = ?")
