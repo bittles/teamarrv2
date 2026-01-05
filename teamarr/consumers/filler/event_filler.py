@@ -267,6 +267,14 @@ class EventFillerGenerator:
             if template.subtitle:
                 subtitle = self._resolver.resolve(template.subtitle, context)
 
+            # Resolve art URL template if present, fallback to logo_url
+            icon = logo_url
+            if template.art_url:
+                resolved_art = self._resolver.resolve(template.art_url, context)
+                # Only use if resolution succeeded (no unresolved placeholders)
+                if "{" not in resolved_art:
+                    icon = resolved_art
+
             programme = Programme(
                 channel_id=channel_id,
                 title=title,
@@ -275,7 +283,7 @@ class EventFillerGenerator:
                 description=description,
                 subtitle=subtitle,
                 category=category,
-                icon=template.art_url or logo_url,
+                icon=icon,
                 filler_type=filler_type,
             )
             programmes.append(programme)
