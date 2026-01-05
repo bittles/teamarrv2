@@ -1021,7 +1021,11 @@ export function EventGroups() {
                                 className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs italic"
                                 title={`Child of: ${parentGroup ? getDisplayName(parentGroup) : 'parent'}`}
                               >
-                                ↳ {parentGroup ? (getDisplayName(parentGroup).length > 15 ? getDisplayName(parentGroup).slice(0, 15) + "…" : getDisplayName(parentGroup)) : "parent"}
+                                ↳ {parentGroup ? ((() => {
+                                  const name = getDisplayName(parentGroup)
+                                  const chars = [...name] // Properly handles Unicode/emojis
+                                  return chars.length > 15 ? chars.slice(0, 15).join("") + "…" : name
+                                })()) : "parent"}
                               </Badge>
                             </div>
                           ) : (
