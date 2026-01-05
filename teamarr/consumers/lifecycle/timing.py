@@ -17,6 +17,7 @@ Delete timing options:
 
 from datetime import datetime, timedelta
 
+from teamarr.consumers.matching.result import ExcludedReason
 from teamarr.core import Event
 from teamarr.utilities.sports import get_sport_duration
 from teamarr.utilities.time_blocks import crosses_midnight
@@ -208,3 +209,40 @@ class ChannelLifecycleManager:
         start = to_user_tz(event.start_time)
         end = self.get_event_end_time(event)
         return crosses_midnight(start, end)
+
+    def categorize_event_timing(self, event: Event) -> ExcludedReason | None:
+        """Categorize why a matched event would be excluded.
+
+        This is called AFTER successful matching to determine if the event
+        falls outside the lifecycle window. Returns None if the event is
+        eligible for channel creation.
+
+        Args:
+            event: The matched event to categorize
+
+        Returns:
+            ExcludedReason if event should be excluded, None if eligible
+        """
+        now = now_user()
+
+        # Check if event status is final
+        if event.status:
+            status_state = event.status.state.lower() if event.status.state else ""
+            status_detail = event.status.detail.lower() if event.status.detail else ""
+            is_final = status_state in ("final", "post", "completed") or "final" in status_detail
+            if is_final:
+                return ExcludedReason.EVENT_FINAL
+
+        # Check if we're past delete threshold (event is over)
+        delete_threshold = self._calculate_delete_threshold(event)
+        if delete_threshold and now >= delete_threshold:
+            return ExcludedReason.EVENT_PAST
+
+        # Check if we're before create threshold (too early)
+        if self.create_timing != "stream_available":
+            create_threshold = self._calculate_create_threshold(event)
+            if now < create_threshold:
+                return ExcludedReason.BEFORE_CREATE_WINDOW
+
+        # Event is within the lifecycle window
+        return None

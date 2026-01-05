@@ -327,6 +327,7 @@ CREATE TABLE IF NOT EXISTS event_epg_groups (
     filtered_exclude_regex INTEGER DEFAULT 0,   -- Streams filtered by exclude regex
     filtered_no_match INTEGER DEFAULT 0,        -- Streams with no event match
     filtered_not_event INTEGER DEFAULT 0,       -- Streams that don't look like events (placeholders)
+    streams_excluded INTEGER DEFAULT 0,         -- Matched but excluded by timing (past/final/early)
 
     -- Multi-Sport Enhancements (Phase 3)
     channel_sort_order TEXT DEFAULT 'time'

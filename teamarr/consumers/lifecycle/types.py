@@ -67,6 +67,7 @@ class StreamProcessResult:
     created: list[dict] = field(default_factory=list)
     existing: list[dict] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)
+    excluded: list[dict] = field(default_factory=list)  # Matched but excluded by timing
     errors: list[dict] = field(default_factory=list)
     streams_added: list[dict] = field(default_factory=list)
     streams_removed: list[dict] = field(default_factory=list)  # V1 parity
@@ -79,6 +80,7 @@ class StreamProcessResult:
         self.created.extend(other.created)
         self.existing.extend(other.existing)
         self.skipped.extend(other.skipped)
+        self.excluded.extend(other.excluded)
         self.errors.extend(other.errors)
         self.streams_added.extend(other.streams_added)
         self.streams_removed.extend(other.streams_removed)
@@ -92,6 +94,7 @@ class StreamProcessResult:
             "created": self.created,
             "existing": self.existing,
             "skipped": self.skipped,
+            "excluded": self.excluded,
             "errors": self.errors,
             "streams_added": self.streams_added,
             "streams_removed": self.streams_removed,
@@ -102,6 +105,7 @@ class StreamProcessResult:
                 "created_count": len(self.created),
                 "existing_count": len(self.existing),
                 "skipped_count": len(self.skipped),
+                "excluded_count": len(self.excluded),
                 "error_count": len(self.errors),
                 "streams_removed_count": len(self.streams_removed),
                 "deleted_count": len(self.deleted),

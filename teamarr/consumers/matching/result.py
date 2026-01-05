@@ -30,6 +30,7 @@ class ResultCategory(Enum):
     FILTERED = "filtered"  # Stream excluded before matching
     FAILED = "failed"  # Matching attempted but failed
     MATCHED = "matched"  # Successfully matched to event
+    EXCLUDED = "excluded"  # Matched but excluded by lifecycle timing
 
 
 # =============================================================================
@@ -126,6 +127,25 @@ class MatchMethod(Enum):
 
 
 # =============================================================================
+# EXCLUDED REASONS - Matched but excluded by lifecycle timing
+# =============================================================================
+
+
+class ExcludedReason(Enum):
+    """Reasons for EXCLUSION - stream matched successfully but event excluded by timing.
+
+    These are NOT failures - the match was correct, but the event falls outside
+    the configured lifecycle window. Users can see "this matched correctly,
+    just too late/early for channel creation".
+    """
+
+    # Event timing exclusions (matched but excluded)
+    EVENT_PAST = "event_past"  # Event already completed (past delete threshold)
+    EVENT_FINAL = "event_final"  # Event is in final state
+    BEFORE_CREATE_WINDOW = "before_create_window"  # Event too far in the future
+
+
+# =============================================================================
 # MATCH OUTCOME - Unified result object
 # =============================================================================
 
@@ -148,7 +168,10 @@ class MatchOutcome:
     # For FAILED results
     failed_reason: FailedReason | None = None
 
-    # For MATCHED results
+    # For EXCLUDED results (matched but excluded by lifecycle)
+    excluded_reason: ExcludedReason | None = None
+
+    # For MATCHED and EXCLUDED results
     match_method: MatchMethod | None = None
     event: Event | None = None
     detected_league: str | None = None
@@ -252,6 +275,35 @@ class MatchOutcome:
             origin_match_method=origin_match_method,
         )
 
+    @classmethod
+    def excluded(
+        cls,
+        reason: ExcludedReason,
+        matched_outcome: "MatchOutcome",
+    ) -> "MatchOutcome":
+        """Create an EXCLUDED result from a matched outcome.
+
+        Converts a successful match to an excluded result, preserving the
+        original match information for visibility.
+
+        Args:
+            reason: Why the match was excluded (EVENT_PAST, EVENT_FINAL, etc.)
+            matched_outcome: The original successful match outcome
+        """
+        return cls(
+            category=ResultCategory.EXCLUDED,
+            excluded_reason=reason,
+            match_method=matched_outcome.match_method,
+            event=matched_outcome.event,
+            detected_league=matched_outcome.detected_league,
+            confidence=matched_outcome.confidence,
+            stream_name=matched_outcome.stream_name,
+            stream_id=matched_outcome.stream_id,
+            parsed_team1=matched_outcome.parsed_team1,
+            parsed_team2=matched_outcome.parsed_team2,
+            origin_match_method=matched_outcome.origin_match_method,
+        )
+
     @property
     def is_filtered(self) -> bool:
         """Check if this is a FILTERED result."""
@@ -268,12 +320,19 @@ class MatchOutcome:
         return self.category == ResultCategory.MATCHED
 
     @property
-    def reason(self) -> FilteredReason | FailedReason | None:
-        """Get the reason enum (for FILTERED or FAILED results)."""
+    def is_excluded(self) -> bool:
+        """Check if this is an EXCLUDED result (matched but excluded by lifecycle)."""
+        return self.category == ResultCategory.EXCLUDED
+
+    @property
+    def reason(self) -> FilteredReason | FailedReason | ExcludedReason | None:
+        """Get the reason enum (for FILTERED, FAILED, or EXCLUDED results)."""
         if self.filtered_reason:
             return self.filtered_reason
         if self.failed_reason:
             return self.failed_reason
+        if self.excluded_reason:
+            return self.excluded_reason
         return None
 
     @property
@@ -346,6 +405,12 @@ METHOD_DISPLAY: dict[MatchMethod, str] = {
     MatchMethod.DIRECT: "Direct assignment",
 }
 
+EXCLUDED_DISPLAY: dict[ExcludedReason, str] = {
+    ExcludedReason.EVENT_PAST: "Event already ended",
+    ExcludedReason.EVENT_FINAL: "Event is final",
+    ExcludedReason.BEFORE_CREATE_WINDOW: "Before create window",
+}
+
 
 def get_display_text(outcome: MatchOutcome) -> str:
     """Get human-readable display text for a match result.
@@ -361,6 +426,13 @@ def get_display_text(outcome: MatchOutcome) -> str:
         if outcome.match_method == MatchMethod.FUZZY and outcome.confidence < 1.0:
             return f"{method_text} ({outcome.confidence:.0%})"
         return method_text
+
+    elif outcome.is_excluded:
+        reason_text = EXCLUDED_DISPLAY.get(outcome.excluded_reason, str(outcome.excluded_reason))
+        method_text = METHOD_DISPLAY.get(outcome.match_method, "")
+        if method_text:
+            return f"{reason_text} (matched via {method_text})"
+        return reason_text
 
     elif outcome.is_failed:
         return FAILED_DISPLAY.get(outcome.failed_reason, str(outcome.failed_reason))
@@ -414,6 +486,16 @@ def log_result(
         conf = f" ({outcome.confidence:.0%})" if outcome.confidence < 1.0 else ""
         logger.info(f"[{method.upper()}{conf}] {display_name} -> {league} | {event_name}")
 
+    elif outcome.is_excluded:
+        reason = outcome.excluded_reason.value if outcome.excluded_reason else "unknown"
+        method = outcome.match_method.value if outcome.match_method else "?"
+        league = (outcome.detected_league or "").upper()
+        event_name = ""
+        if outcome.event:
+            event_name = outcome.event.short_name or outcome.event.name
+
+        logger.info(f"[EXCLUDED:{reason}] {display_name} -> {league} | {event_name} (via {method})")
+
     elif outcome.is_failed:
         reason = outcome.failed_reason.value if outcome.failed_reason else "unknown"
         detail = outcome.detail or ""
@@ -446,8 +528,10 @@ def format_result_summary(
     filtered_count: int = 0,
     failed_count: int = 0,
     matched_count: int = 0,
+    excluded_count: int = 0,
     by_filtered_reason: dict[FilteredReason, int] | None = None,
     by_failed_reason: dict[FailedReason, int] | None = None,
+    by_excluded_reason: dict[ExcludedReason, int] | None = None,
     by_method: dict[MatchMethod, int] | None = None,
 ) -> str:
     """Format a summary of match results for logging.
@@ -456,17 +540,21 @@ def format_result_summary(
         Multi-line summary string
     """
     lines = []
-    total = filtered_count + failed_count + matched_count
+    total = filtered_count + failed_count + matched_count + excluded_count
     rate = f"{matched_count / total:.0%}" if total > 0 else "N/A"
 
     lines.append(
-        f"Match Results: {matched_count} matched, {failed_count} failed, "
-        f"{filtered_count} filtered (rate: {rate})"
+        f"Match Results: {matched_count} matched, {excluded_count} excluded, "
+        f"{failed_count} failed, {filtered_count} filtered (rate: {rate})"
     )
 
     if by_method:
         method_parts = [f"{m.value}:{c}" for m, c in sorted(by_method.items(), key=lambda x: -x[1])]
         lines.append(f"  By method: {', '.join(method_parts)}")
+
+    if by_excluded_reason:
+        excl_parts = [f"{r.value}:{c}" for r, c in by_excluded_reason.items()]
+        lines.append(f"  Excluded: {', '.join(excl_parts)}")
 
     if by_failed_reason:
         fail_parts = [f"{r.value}:{c}" for r, c in by_failed_reason.items()]
@@ -496,10 +584,12 @@ class ResultAggregator:
     """
 
     matched: int = 0
+    excluded: int = 0
     failed: int = 0
     filtered: int = 0
 
     by_method: dict[MatchMethod, int] = field(default_factory=dict)
+    by_excluded_reason: dict[ExcludedReason, int] = field(default_factory=dict)
     by_failed_reason: dict[FailedReason, int] = field(default_factory=dict)
     by_filtered_reason: dict[FilteredReason, int] = field(default_factory=dict)
 
@@ -510,6 +600,17 @@ class ResultAggregator:
         """Add an outcome to the aggregation."""
         if outcome.is_matched:
             self.matched += 1
+            if outcome.match_method:
+                self.by_method[outcome.match_method] = (
+                    self.by_method.get(outcome.match_method, 0) + 1
+                )
+        elif outcome.is_excluded:
+            self.excluded += 1
+            if outcome.excluded_reason:
+                self.by_excluded_reason[outcome.excluded_reason] = (
+                    self.by_excluded_reason.get(outcome.excluded_reason, 0) + 1
+                )
+            # Also track by method for excluded streams (they matched successfully)
             if outcome.match_method:
                 self.by_method[outcome.match_method] = (
                     self.by_method.get(outcome.match_method, 0) + 1
@@ -533,7 +634,7 @@ class ResultAggregator:
     @property
     def total(self) -> int:
         """Total outcomes processed."""
-        return self.matched + self.failed + self.filtered
+        return self.matched + self.excluded + self.failed + self.filtered
 
     @property
     def match_rate(self) -> float:
@@ -548,8 +649,10 @@ class ResultAggregator:
             filtered_count=self.filtered,
             failed_count=self.failed,
             matched_count=self.matched,
+            excluded_count=self.excluded,
             by_filtered_reason=self.by_filtered_reason if self.by_filtered_reason else None,
             by_failed_reason=self.by_failed_reason if self.by_failed_reason else None,
+            by_excluded_reason=self.by_excluded_reason if self.by_excluded_reason else None,
             by_method=self.by_method if self.by_method else None,
         )
 
@@ -557,12 +660,14 @@ class ResultAggregator:
         """Convert to dictionary for API response."""
         return {
             "matched": self.matched,
+            "excluded": self.excluded,
             "failed": self.failed,
             "filtered": self.filtered,
             "total": self.total,
             "eligible": self.eligible,
             "match_rate": self.match_rate,
             "by_method": {m.value: c for m, c in self.by_method.items()},
+            "by_excluded_reason": {r.value: c for r, c in self.by_excluded_reason.items()},
             "by_failed_reason": {r.value: c for r, c in self.by_failed_reason.items()},
             "by_filtered_reason": {r.value: c for r, c in self.by_filtered_reason.items()},
         }

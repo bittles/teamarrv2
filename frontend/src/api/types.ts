@@ -40,6 +40,7 @@ export interface EventGroup {
   filtered_exclude_regex: number
   filtered_no_match: number
   filtered_not_event: number
+  streams_excluded: number  // Matched but excluded by timing (past/final/early)
   // Multi-sport enhancements (Phase 3)
   channel_sort_order: string
   overlap_handling: string

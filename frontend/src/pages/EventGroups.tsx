@@ -353,6 +353,7 @@ export function EventGroups() {
       filteredExcludeRegex: 0,
       filteredNoMatch: 0,
       filteredNotEvent: 0,
+      streamsExcluded: 0,
       eligible: 0,
       matched: 0,
       matchRate: 0,
@@ -368,6 +369,7 @@ export function EventGroups() {
     const filteredIncludeRegex = groups.reduce((sum, g) => sum + (g.filtered_include_regex || 0), 0)
     const filteredExcludeRegex = groups.reduce((sum, g) => sum + (g.filtered_exclude_regex || 0), 0)
     const filteredNotEvent = groups.reduce((sum, g) => sum + (g.filtered_not_event || 0), 0)
+    const streamsExcluded = groups.reduce((sum, g) => sum + (g.streams_excluded || 0), 0)
     // Note: filtered_no_match is NOT a filter reason - it's a match failure (streams passed filters but no event match)
     const totalFiltered = filteredIncludeRegex + filteredExcludeRegex + filteredNotEvent
     const eligible = groups.reduce((sum, g) => sum + (g.stream_count || 0), 0)
@@ -398,6 +400,7 @@ export function EventGroups() {
       filteredIncludeRegex,
       filteredExcludeRegex,
       filteredNotEvent,
+      streamsExcluded,
       eligible,
       matched,
       matchRate,
@@ -717,6 +720,24 @@ export function EventGroups() {
                 </div>
               )}
             </div>
+
+            {/* Excluded */}
+            {stats.streamsExcluded > 0 && (
+              <div className="group relative">
+                <div className="bg-secondary rounded px-3 py-2 cursor-help">
+                  <div className="text-xl font-bold text-yellow-500">{stats.streamsExcluded}</div>
+                  <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">Excluded</div>
+                </div>
+                <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block">
+                  <Card className="p-3 shadow-lg border min-w-[200px]">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">Matched but Excluded</div>
+                    <div className="text-sm text-muted-foreground">
+                      Streams that matched an event but were excluded due to timing (event already ended, final, or before create window).
+                    </div>
+                  </Card>
+                </div>
+              </div>
+            )}
         </div>
       )}
 

@@ -371,6 +371,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     - 6: Added league_alias column, fixed managed_channels UNIQUE constraint
     - 7: Added gracenote_category column
     - 8: Added custom_regex_date/time columns to event_epg_groups
+    - 9: Added keyword_ordering to change_source CHECK constraint
+    - 10: Updated channel timing CHECK constraints
+    - 11: Removed UNIQUE constraint from tvg_id
+    - 12: Removed per-group timing settings
+    - 13: Added display_name to event_epg_groups
+    - 14: Added streams_excluded to event_epg_groups
     """
     import logging
 
@@ -564,6 +570,16 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE settings SET schema_version = 13 WHERE id = 1")
         logger.info("Schema upgraded to version 13 (event_epg_groups.display_name)")
         current_version = 13
+
+    # Version 14: Add streams_excluded column to event_epg_groups
+    # Tracks matched-but-excluded streams (past/final/before-create-window)
+    if current_version < 14:
+        _add_column_if_not_exists(
+            conn, "event_epg_groups", "streams_excluded", "INTEGER DEFAULT 0"
+        )
+        conn.execute("UPDATE settings SET schema_version = 14 WHERE id = 1")
+        logger.info("Schema upgraded to version 14 (event_epg_groups.streams_excluded)")
+        current_version = 14
 
 
 def _remove_tvg_id_unique_constraint(conn: sqlite3.Connection) -> None:

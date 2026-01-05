@@ -212,6 +212,25 @@ class ChannelLifecycleService:
                     stream_name = stream.get("name", "")
                     stream_id = stream.get("id")
 
+                    # Check if event should be excluded based on timing
+                    excluded_reason = self._timing_manager.categorize_event_timing(event)
+                    if excluded_reason:
+                        result.excluded.append(
+                            {
+                                "stream": stream_name,
+                                "stream_id": stream_id,
+                                "event_id": event_id,
+                                "event_name": event.short_name or event.name,
+                                "reason": excluded_reason.value,
+                                "reason_display": {
+                                    "event_past": "Event already ended",
+                                    "event_final": "Event is final",
+                                    "before_create_window": "Before create window",
+                                }.get(excluded_reason.value, excluded_reason.value),
+                            }
+                        )
+                        continue
+
                     # Check exception keyword
                     matched_keyword, keyword_behavior = self._check_exception_keyword(
                         stream_name, conn

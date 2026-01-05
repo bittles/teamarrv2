@@ -83,6 +83,7 @@ class ProcessingResult:
     # Stream matching
     streams_matched: int = 0
     streams_unmatched: int = 0
+    streams_excluded: int = 0  # Matched but excluded by timing (past/final/early)
 
     # Channel lifecycle
     channels_created: int = 0
@@ -835,6 +836,7 @@ class EventGroupProcessor:
                 filtered_exclude_regex=result.filtered_exclude_regex,
                 filtered_no_match=result.streams_unmatched,
                 filtered_not_event=result.filtered_not_event,
+                streams_excluded=result.streams_excluded,
                 total_stream_count=result.streams_fetched,  # V1 parity
             )
 
@@ -1055,6 +1057,7 @@ class EventGroupProcessor:
                 result.channels_skipped = len(lifecycle_result.skipped)
                 result.channels_deleted = len(lifecycle_result.deleted)
                 result.channel_errors = len(lifecycle_result.errors)
+                result.streams_excluded = len(lifecycle_result.excluded)
 
                 stats_run.channels_created = len(lifecycle_result.created)
                 stats_run.channels_updated = len(lifecycle_result.existing)
@@ -1102,6 +1105,7 @@ class EventGroupProcessor:
                 filtered_exclude_regex=result.filtered_exclude_regex,
                 filtered_no_match=result.streams_unmatched,
                 filtered_not_event=result.filtered_not_event,
+                streams_excluded=result.streams_excluded,
                 total_stream_count=result.streams_fetched,  # V1 parity
             )
 

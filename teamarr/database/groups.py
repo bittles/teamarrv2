@@ -52,6 +52,7 @@ class EventEPGGroup:
     filtered_exclude_regex: int = 0
     filtered_no_match: int = 0
     filtered_not_event: int = 0  # Streams that don't look like events (placeholders)
+    streams_excluded: int = 0  # Matched but excluded by timing (past/final/early)
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str = "time"
     overlap_handling: str = "add_stream"
@@ -134,6 +135,7 @@ def _row_to_group(row) -> EventEPGGroup:
         filtered_exclude_regex=row["filtered_exclude_regex"] or 0,
         filtered_no_match=row["filtered_no_match"] or 0,
         filtered_not_event=row["filtered_not_event"] if "filtered_not_event" in row.keys() else 0,
+        streams_excluded=row["streams_excluded"] if "streams_excluded" in row.keys() else 0,
         # Multi-sport enhancements
         channel_sort_order=row["channel_sort_order"] or "time",
         overlap_handling=row["overlap_handling"] or "add_stream",
@@ -617,6 +619,7 @@ def update_group_stats(
     filtered_exclude_regex: int = 0,
     filtered_no_match: int = 0,
     filtered_not_event: int = 0,
+    streams_excluded: int = 0,
     total_stream_count: int | None = None,
 ) -> bool:
     """Update processing stats for a group after EPG generation.
@@ -630,6 +633,7 @@ def update_group_stats(
         filtered_exclude_regex: Streams filtered by exclude regex
         filtered_no_match: Streams with no event match
         filtered_not_event: Streams that don't look like events (placeholders)
+        streams_excluded: Matched but excluded by timing (past/final/early)
         total_stream_count: Total streams fetched (before filtering) for range reservation
 
     Returns:
@@ -645,6 +649,7 @@ def update_group_stats(
                    filtered_exclude_regex = ?,
                    filtered_no_match = ?,
                    filtered_not_event = ?,
+                   streams_excluded = ?,
                    total_stream_count = ?
                WHERE id = ?""",
             (
@@ -654,6 +659,7 @@ def update_group_stats(
                 filtered_exclude_regex,
                 filtered_no_match,
                 filtered_not_event,
+                streams_excluded,
                 total_stream_count,
                 group_id,
             ),
@@ -667,7 +673,8 @@ def update_group_stats(
                    filtered_include_regex = ?,
                    filtered_exclude_regex = ?,
                    filtered_no_match = ?,
-                   filtered_not_event = ?
+                   filtered_not_event = ?,
+                   streams_excluded = ?
                WHERE id = ?""",
             (
                 stream_count,
@@ -676,6 +683,7 @@ def update_group_stats(
                 filtered_exclude_regex,
                 filtered_no_match,
                 filtered_not_event,
+                streams_excluded,
                 group_id,
             ),
         )

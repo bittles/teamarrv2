@@ -50,44 +50,26 @@ class MatchContext:
     # Sport durations for ongoing event detection (hours)
     sport_durations: dict[str, float] = field(default_factory=dict)
 
-    def is_event_ongoing(self, event: "Event") -> bool:
-        """Check if an event should be considered for matching.
+    def is_event_in_search_window(self, event: "Event") -> bool:
+        """Check if an event falls within the search window for matching.
 
-        V1 Parity: Yesterday's events are only candidates if NOT final/completed.
-        The SEARCH_DAYS_BACK is for catching in-progress games, not finished ones.
+        V2 Exclusion Tracking: Events in the search window are candidates for matching.
+        The lifecycle layer will categorize matched-but-past events as EXCLUDED,
+        allowing users to see that streams matched correctly even if events are over.
 
-        Returns True if:
-        - Event is today (regardless of status - final exclusion handled elsewhere)
-        - Event is from yesterday AND not completed/final AND within duration window
+        Returns True if event is within search window:
+        - MATCH_DAYS_BACK = 2: yesterday and day before (for "what matched yesterday" queries)
+        - Today and future events up to extracted_date (if any) are always included
+
+        Final/completed status is NOT checked here - lifecycle handles exclusions.
         """
-        now = datetime.now(self.user_tz)
         event_start = event.start_time.astimezone(self.user_tz)
         event_date = event_start.date()
 
-        # Today's events are always candidates (final status handled elsewhere)
-        if event_date == self.target_date:
-            return True
+        # Check if event is within search window
+        earliest_date = self.target_date - timedelta(days=2)  # 2 days back
 
-        # Yesterday's events: only if NOT final/completed
-        if event_date == self.target_date - timedelta(days=1):
-            # Check event status - final events from yesterday are NOT candidates
-            if event.status:
-                status_state = event.status.state.lower() if event.status.state else ""
-                status_detail = event.status.detail.lower() if event.status.detail else ""
-                is_completed = (
-                    status_state in ("final", "post", "completed") or "final" in status_detail
-                )
-                if is_completed:
-                    return False
-
-            # Not completed - check duration window as safety net
-            sport = event.sport.lower() if event.sport else "default"
-            duration_hours = self.sport_durations.get(sport, 3.0)  # Default 3 hours
-            event_end_estimate = event_start + timedelta(hours=duration_hours)
-            return event_end_estimate > now
-
-        # Older events are not candidates
-        return False
+        return event_date >= earliest_date
 
 
 class TeamMatcher:
@@ -172,12 +154,14 @@ class TeamMatcher:
         if cache_result:
             return cache_result
 
-        # Get events for this league - include yesterday to catch ongoing games
-        # V1 Parity: SEARCH_DAYS_BACK = 1 for in-progress games crossing midnight
+        # Get events for this league - include past 2 days for exclusion tracking
+        # V2: MATCH_DAYS_BACK = 2 so users can see "matched yesterday's games" as excluded
+        day_before_yesterday = target_date - timedelta(days=2)
         yesterday = target_date - timedelta(days=1)
         events_today = self._service.get_events(league, target_date)
         events_yesterday = self._service.get_events(league, yesterday)
-        events = events_today + events_yesterday
+        events_day_before = self._service.get_events(league, day_before_yesterday)
+        events = events_today + events_yesterday + events_day_before
 
         if not events:
             return MatchOutcome.failed(
@@ -278,16 +262,20 @@ class TeamMatcher:
             # No hint, search all enabled leagues
             leagues_to_search = enabled_leagues
 
-        # Gather events from all leagues to search - include yesterday for ongoing games
-        # V1 Parity: SEARCH_DAYS_BACK = 1 for in-progress games crossing midnight
+        # Gather events from all leagues to search - include past 2 days for exclusion tracking
+        # V2: MATCH_DAYS_BACK = 2 so users can see "matched yesterday's games" as excluded
+        day_before_yesterday = target_date - timedelta(days=2)
         yesterday = target_date - timedelta(days=1)
         all_events: list[tuple[str, Event]] = []
         for league in leagues_to_search:
             events_today = self._service.get_events(league, target_date)
             events_yesterday = self._service.get_events(league, yesterday)
+            events_day_before = self._service.get_events(league, day_before_yesterday)
             for event in events_today:
                 all_events.append((league, event))
             for event in events_yesterday:
+                all_events.append((league, event))
+            for event in events_day_before:
                 all_events.append((league, event))
 
         if not all_events:
@@ -385,8 +373,8 @@ class TeamMatcher:
         best_confidence: float = 0.0
 
         for event in events:
-            # Validate date - include today's events and ongoing events from yesterday
-            if not ctx.is_event_ongoing(event):
+            # Validate event is within search window (lifecycle handles exclusions)
+            if not ctx.is_event_in_search_window(event):
                 continue
 
             event_date = event.start_time.astimezone(ctx.user_tz).date()
@@ -470,8 +458,8 @@ class TeamMatcher:
         best_confidence: float = 0.0
 
         for league, event in events:
-            # Validate date - include today's events and ongoing events from yesterday
-            if not ctx.is_event_ongoing(event):
+            # Validate event is within search window (lifecycle handles exclusions)
+            if not ctx.is_event_in_search_window(event):
                 continue
 
             event_date = event.start_time.astimezone(ctx.user_tz).date()

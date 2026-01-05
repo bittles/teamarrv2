@@ -156,6 +156,7 @@ class GroupResponse(BaseModel):
     filtered_exclude_regex: int = 0
     filtered_no_match: int = 0
     filtered_not_event: int = 0
+    streams_excluded: int = 0  # Matched but excluded by timing (past/final/early)
     # Multi-sport enhancements (Phase 3)
     channel_sort_order: str = "time"
     overlap_handling: str = "add_stream"
@@ -295,6 +296,7 @@ def list_groups(
                 filtered_exclude_regex=g.filtered_exclude_regex,
                 filtered_no_match=g.filtered_no_match,
                 filtered_not_event=g.filtered_not_event,
+                streams_excluded=g.streams_excluded,
                 channel_sort_order=g.channel_sort_order,
                 overlap_handling=g.overlap_handling,
                 enabled=g.enabled,
@@ -403,6 +405,7 @@ def create_group(request: GroupCreate):
         filtered_exclude_regex=group.filtered_exclude_regex,
         filtered_no_match=group.filtered_no_match,
         filtered_not_event=group.filtered_not_event,
+        streams_excluded=group.streams_excluded,
         channel_sort_order=group.channel_sort_order,
         overlap_handling=group.overlap_handling,
         enabled=group.enabled,
@@ -463,6 +466,7 @@ def get_group_by_id(group_id: int):
         filtered_exclude_regex=group.filtered_exclude_regex,
         filtered_no_match=group.filtered_no_match,
         filtered_not_event=group.filtered_not_event,
+        streams_excluded=group.streams_excluded,
         channel_sort_order=group.channel_sort_order,
         overlap_handling=group.overlap_handling,
         enabled=group.enabled,
@@ -598,6 +602,7 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
         filtered_exclude_regex=group.filtered_exclude_regex,
         filtered_no_match=group.filtered_no_match,
         filtered_not_event=group.filtered_not_event,
+        streams_excluded=group.streams_excluded,
         channel_sort_order=group.channel_sort_order,
         overlap_handling=group.overlap_handling,
         enabled=group.enabled,
