@@ -243,6 +243,11 @@ class ChannelLifecycleService:
                     )
 
                     if existing:
+                        logger.debug(
+                            f"Found existing channel id={existing.id} "
+                            f"dispatcharr_id={existing.dispatcharr_channel_id} "
+                            f"for event {event_id}"
+                        )
                         # Handle based on effective mode
                         channel_result = self._handle_existing_channel(
                             conn=conn,
