@@ -1521,6 +1521,9 @@ class EventGroupProcessor:
             "stream_profile_id": group.stream_profile_id,
             "channel_profile_ids": group.channel_profile_ids,
             "channel_start_number": group.channel_start_number,
+            # For cross-group consolidation
+            "overlap_handling": group.overlap_handling,
+            "leagues": group.leagues,  # len > 1 means multi-league
         }
 
         # Load template from database if configured

@@ -537,6 +537,8 @@ def find_any_channel_for_event(
     event_id: str,
     event_provider: str,
     exclude_group_id: int | None = None,
+    exception_keyword: str | None = None,
+    any_keyword: bool = False,
 ) -> ManagedChannel | None:
     """Find any group's channel for an event (used for cross-group consolidation).
 
@@ -548,31 +550,35 @@ def find_any_channel_for_event(
         event_id: Event ID
         event_provider: Provider name
         exclude_group_id: Optional group ID to exclude from search
+        exception_keyword: If set, match channels with this keyword
+        any_keyword: If True, match any channel regardless of keyword
 
     Returns:
         First matching ManagedChannel or None if not found
     """
+    params: list = [event_id, event_provider]
+
+    sql = """SELECT * FROM managed_channels
+             WHERE event_id = ?
+               AND event_provider = ?
+               AND deleted_at IS NULL"""
+
     if exclude_group_id:
-        cursor = conn.execute(
-            """SELECT * FROM managed_channels
-               WHERE event_id = ?
-                 AND event_provider = ?
-                 AND event_epg_group_id != ?
-                 AND deleted_at IS NULL
-               ORDER BY created_at ASC
-               LIMIT 1""",
-            (event_id, event_provider, exclude_group_id),
-        )
-    else:
-        cursor = conn.execute(
-            """SELECT * FROM managed_channels
-               WHERE event_id = ?
-                 AND event_provider = ?
-                 AND deleted_at IS NULL
-               ORDER BY created_at ASC
-               LIMIT 1""",
-            (event_id, event_provider),
-        )
+        sql += " AND event_epg_group_id != ?"
+        params.append(exclude_group_id)
+
+    # Keyword filtering
+    if not any_keyword:
+        if exception_keyword:
+            sql += " AND exception_keyword = ?"
+            params.append(exception_keyword)
+        else:
+            sql += " AND (exception_keyword IS NULL OR exception_keyword = '')"
+    # any_keyword=True: no keyword filter, match any channel
+
+    sql += " ORDER BY created_at ASC LIMIT 1"
+
+    cursor = conn.execute(sql, params)
     row = cursor.fetchone()
     if row:
         return ManagedChannel.from_row(dict(row))
