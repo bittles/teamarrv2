@@ -27,6 +27,9 @@ class TSDBProvider(SportsProvider):
     Handles leagues not covered by ESPN.
     """
 
+    # Days to scan backwards for .last variable resolution
+    DAYS_BACK = 7
+
     def __init__(
         self,
         league_mapping_source: LeagueMappingSource | None = None,
@@ -101,10 +104,14 @@ class TSDBProvider(SportsProvider):
         league: str,
         days_ahead: int = 14,
     ) -> list[Event]:
-        """Get upcoming schedule for a team.
+        """Get schedule for a team including past and future games.
 
         Uses eventsday.php across multiple days to get both HOME and AWAY
         games (eventsnext.php only returns HOME on free tier).
+
+        Scans:
+        - Past DAYS_BACK days for .last variable resolution (cached indefinitely)
+        - Future days_ahead days for upcoming games
 
         Note: days_ahead is capped at TSDB_MAX_DAYS_AHEAD (14) to reduce
         API calls. TSDB data is sparse for far-future dates anyway.
@@ -120,28 +127,76 @@ class TSDBProvider(SportsProvider):
 
         events = []
         today = date.today()
+        seen_ids: set[str] = set()
 
-        # Query each day and filter for this team
+        # 1. Scan past days for .last variable resolution (use provider cache)
+        for i in range(self.DAYS_BACK, 0, -1):
+            target_date = today - timedelta(days=i)
+            team_events = self._get_events_for_team(league, target_date, team_name, is_past=True)
+            for event in team_events:
+                if event.id not in seen_ids:
+                    seen_ids.add(event.id)
+                    events.append(event)
+
+        # 2. Scan future days (including today)
         for i in range(days_ahead):
             target_date = today + timedelta(days=i)
-            date_str = target_date.strftime("%Y-%m-%d")
-
-            data = self._client.get_events_by_date(league, date_str)
-            if not data or not data.get("events"):
-                continue
-
-            for event_data in data["events"]:
-                # Check if team is home or away
-                home = event_data.get("strHomeTeam", "")
-                away = event_data.get("strAwayTeam", "")
-                if team_name in (home, away):
-                    event = self._parse_event(event_data, league)
-                    if event:
-                        events.append(event)
+            team_events = self._get_events_for_team(league, target_date, team_name, is_past=False)
+            for event in team_events:
+                if event.id not in seen_ids:
+                    seen_ids.add(event.id)
+                    events.append(event)
 
         # Sort by start time
         events.sort(key=lambda e: e.start_time)
         return events
+
+    def _get_events_for_team(
+        self,
+        league: str,
+        target_date: date,
+        team_name: str,
+        is_past: bool = False,
+    ) -> list[Event]:
+        """Get events for a team on a specific date.
+
+        For past dates, uses persistent SQLite cache (final results don't change).
+        For future dates, fetches fresh data.
+        """
+        from teamarr.database.provider_cache import cache_events, get_cached_events
+
+        # For past events, check persistent cache first
+        if is_past:
+            cached = get_cached_events("tsdb", league, target_date)
+            if cached is not None:
+                return [e for e in cached if self._team_in_event(team_name, e)]
+
+        # Fetch from API
+        date_str = target_date.strftime("%Y-%m-%d")
+        data = self._client.get_events_by_date(league, date_str)
+        if not data or not data.get("events"):
+            # Cache empty result for past dates too
+            if is_past:
+                cache_events("tsdb", league, target_date, [])
+            return []
+
+        # Parse all events
+        all_events = []
+        for event_data in data["events"]:
+            event = self._parse_event(event_data, league)
+            if event:
+                all_events.append(event)
+
+        # Cache past events (they're final)
+        if is_past:
+            cache_events("tsdb", league, target_date, all_events)
+
+        # Filter for this team
+        return [e for e in all_events if self._team_in_event(team_name, e)]
+
+    def _team_in_event(self, team_name: str, event: Event) -> bool:
+        """Check if team is playing in this event."""
+        return team_name in (event.home_team.name, event.away_team.name)
 
     def _get_team_name(self, team_id: str, league: str) -> str | None:
         """Get team name from ID using seeded database cache.

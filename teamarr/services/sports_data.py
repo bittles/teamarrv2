@@ -2,19 +2,30 @@
 
 Routes requests to appropriate providers with caching.
 Consumers call this service - never providers directly.
+
+Uses PersistentTTLCache (SQLite-backed) for all caching.
+Cache survives restarts, respects TTL expiration.
 """
 
 import logging
 from datetime import date
 
 from teamarr.core import Event, SportsProvider, Team, TeamStats
+from teamarr.database.provider_cache import (
+    dict_to_event,
+    dict_to_stats,
+    dict_to_team,
+    event_to_dict,
+    stats_to_dict,
+    team_to_dict,
+)
 from teamarr.providers import ProviderRegistry
 from teamarr.utilities.cache import (
     CACHE_TTL_SCHEDULE,
     CACHE_TTL_SINGLE_EVENT,
     CACHE_TTL_TEAM_INFO,
     CACHE_TTL_TEAM_STATS,
-    TTLCache,
+    PersistentTTLCache,
     get_events_cache_ttl,
     make_cache_key,
 )
@@ -72,7 +83,7 @@ class SportsDataService:
 
     def __init__(self, providers: list[SportsProvider] | None = None):
         self._providers: list[SportsProvider] = providers or []
-        self._cache = TTLCache()
+        self._cache = PersistentTTLCache()
 
     def add_provider(self, provider: SportsProvider) -> None:
         """Register a provider."""
@@ -86,11 +97,14 @@ class SportsDataService:
         """
         cache_key = make_cache_key("events", league, target_date.isoformat())
 
-        # Check cache
+        # Check cache (deserialize from dict)
         cached = self._cache.get(cache_key)
         if cached is not None:
             logger.debug(f"Cache hit: {cache_key}")
-            return cached
+            try:
+                return [dict_to_event(e) for e in cached]
+            except (KeyError, TypeError) as e:
+                logger.warning(f"Cache deserialization failed: {e}")
 
         # Iterate through providers
         for provider in self._providers:
@@ -98,7 +112,8 @@ class SportsDataService:
                 events = provider.get_events(league, target_date)
                 if events:
                     ttl = get_events_cache_ttl(target_date)
-                    self._cache.set(cache_key, events, ttl)
+                    # Serialize to dict before caching
+                    self._cache.set(cache_key, [event_to_dict(e) for e in events], ttl)
                     return events
         return []
 
@@ -108,21 +123,25 @@ class SportsDataService:
         league: str,
         days_ahead: int = 14,
     ) -> list[Event]:
-        """Get upcoming schedule for a team."""
+        """Get schedule for a team (past and future games)."""
         cache_key = make_cache_key("schedule", league, team_id)
 
-        # Check cache
+        # Check cache (deserialize from dict)
         cached = self._cache.get(cache_key)
         if cached is not None:
             logger.debug(f"Cache hit: {cache_key}")
-            return cached
+            try:
+                return [dict_to_event(e) for e in cached]
+            except (KeyError, TypeError) as e:
+                logger.warning(f"Cache deserialization failed: {e}")
 
         # Fetch from provider
         for provider in self._providers:
             if provider.supports_league(league):
                 events = provider.get_team_schedule(team_id, league, days_ahead)
                 if events:
-                    self._cache.set(cache_key, events, CACHE_TTL_SCHEDULE)
+                    # Serialize to dict before caching
+                    self._cache.set(cache_key, [event_to_dict(e) for e in events], CACHE_TTL_SCHEDULE)
                     return events
         return []
 
@@ -130,18 +149,22 @@ class SportsDataService:
         """Get team details."""
         cache_key = make_cache_key("team", league, team_id)
 
-        # Check cache
+        # Check cache (deserialize from dict)
         cached = self._cache.get(cache_key)
         if cached is not None:
             logger.debug(f"Cache hit: {cache_key}")
-            return cached
+            try:
+                return dict_to_team(cached)
+            except (KeyError, TypeError) as e:
+                logger.warning(f"Cache deserialization failed: {e}")
 
         # Fetch from provider
         for provider in self._providers:
             if provider.supports_league(league):
                 team = provider.get_team(team_id, league)
                 if team:
-                    self._cache.set(cache_key, team, CACHE_TTL_TEAM_INFO)
+                    # Serialize to dict before caching
+                    self._cache.set(cache_key, team_to_dict(team), CACHE_TTL_TEAM_INFO)
                     return team
         return None
 
@@ -152,16 +175,21 @@ class SportsDataService:
         """
         cache_key = make_cache_key("event", league, event_id)
 
+        # Check cache (deserialize from dict)
         cached = self._cache.get(cache_key)
         if cached is not None:
             logger.debug(f"Cache hit: {cache_key}")
-            return cached
+            try:
+                return dict_to_event(cached)
+            except (KeyError, TypeError) as e:
+                logger.warning(f"Cache deserialization failed: {e}")
 
         for provider in self._providers:
             if provider.supports_league(league):
                 event = provider.get_event(event_id, league)
                 if event:
-                    self._cache.set(cache_key, event, CACHE_TTL_SINGLE_EVENT)
+                    # Serialize to dict before caching
+                    self._cache.set(cache_key, event_to_dict(event), CACHE_TTL_SINGLE_EVENT)
                     return event
         return None
 
@@ -169,18 +197,22 @@ class SportsDataService:
         """Get detailed team statistics."""
         cache_key = make_cache_key("stats", league, team_id)
 
-        # Check cache
+        # Check cache (deserialize from dict)
         cached = self._cache.get(cache_key)
         if cached is not None:
             logger.debug(f"Cache hit: {cache_key}")
-            return cached
+            try:
+                return dict_to_stats(cached)
+            except (KeyError, TypeError) as e:
+                logger.warning(f"Cache deserialization failed: {e}")
 
         # Fetch from provider
         for provider in self._providers:
             if provider.supports_league(league):
                 stats = provider.get_team_stats(team_id, league)
                 if stats:
-                    self._cache.set(cache_key, stats, CACHE_TTL_TEAM_STATS)
+                    # Serialize to dict before caching
+                    self._cache.set(cache_key, stats_to_dict(stats), CACHE_TTL_TEAM_STATS)
                     return stats
         return None
 

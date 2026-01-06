@@ -1,14 +1,16 @@
-"""In-memory cache with TTL support.
+"""Cache implementations with TTL support.
 
-Simple cache for API responses. Provides significant performance improvement
-by avoiding redundant API calls for the same data.
+Two cache backends available:
+- TTLCache: In-memory, fast, resets on restart
+- PersistentTTLCache: SQLite-backed, survives restarts
 
 TTL recommendations:
-- Team stats: 6 hours (changes infrequently)
-- Team schedules: 1 hour (games added/removed rarely)
-- Events/scoreboard: 5 minutes (live score updates)
+- Team stats: 4 hours (changes infrequently)
+- Team schedules: 8 hours (games added/removed rarely)
+- Events/scoreboard: 30 min today, 8 hours past/future
 """
 
+import json
 import logging
 import threading
 from dataclasses import dataclass
@@ -161,6 +163,157 @@ class TTLCache:
             }
 
 
+class PersistentTTLCache:
+    """SQLite-backed cache with TTL support.
+
+    Same interface as TTLCache but persists to SQLite.
+    Survives application restarts while respecting TTL expiration.
+
+    Usage:
+        cache = PersistentTTLCache(default_ttl_seconds=3600)
+        cache.set("key", value)
+        result = cache.get("key")  # Returns None if expired
+    """
+
+    def __init__(self, default_ttl_seconds: int = 3600):
+        self._default_ttl = timedelta(seconds=default_ttl_seconds)
+        self._lock = threading.Lock()
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, key: str) -> Any | None:
+        """Get value if exists and not expired."""
+        from teamarr.database.connection import get_db
+
+        with self._lock:
+            now = datetime.now()
+            with get_db() as conn:
+                row = conn.execute(
+                    """
+                    SELECT data_json, expires_at FROM service_cache
+                    WHERE cache_key = ?
+                    """,
+                    (key,),
+                ).fetchone()
+
+            if row is None:
+                self._misses += 1
+                return None
+
+            expires_at = datetime.fromisoformat(row["expires_at"])
+            if now > expires_at:
+                # Expired - delete and return None
+                self._delete_key(key)
+                self._misses += 1
+                return None
+
+            self._hits += 1
+            try:
+                return json.loads(row["data_json"])
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to decode cached value for key: {key}")
+                self._delete_key(key)
+                return None
+
+    def set(self, key: str, value: Any, ttl_seconds: int | None = None) -> None:
+        """Set value with optional custom TTL."""
+        from teamarr.database.connection import get_db
+
+        ttl = timedelta(seconds=ttl_seconds) if ttl_seconds else self._default_ttl
+        now = datetime.now()
+        expires_at = now + ttl
+
+        try:
+            data_json = json.dumps(value, default=str)
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize value for key {key}: {e}")
+            return
+
+        with self._lock:
+            with get_db() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO service_cache
+                    (cache_key, data_json, expires_at, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (key, data_json, expires_at.isoformat(), now.isoformat()),
+                )
+
+    def _delete_key(self, key: str) -> None:
+        """Delete a key (internal, no lock)."""
+        from teamarr.database.connection import get_db
+
+        with get_db() as conn:
+            conn.execute("DELETE FROM service_cache WHERE cache_key = ?", (key,))
+
+    def delete(self, key: str) -> None:
+        """Delete a key from cache."""
+        with self._lock:
+            self._delete_key(key)
+
+    def clear(self) -> None:
+        """Clear all cached values."""
+        from teamarr.database.connection import get_db
+
+        with self._lock:
+            with get_db() as conn:
+                conn.execute("DELETE FROM service_cache")
+            self._hits = 0
+            self._misses = 0
+
+    def cleanup_expired(self) -> int:
+        """Remove all expired entries. Returns count removed."""
+        from teamarr.database.connection import get_db
+
+        now = datetime.now().isoformat()
+        with self._lock:
+            with get_db() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM service_cache WHERE expires_at < ?", (now,)
+                )
+                return cursor.rowcount
+
+    @property
+    def size(self) -> int:
+        """Current number of entries (including possibly expired)."""
+        from teamarr.database.connection import get_db
+
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) as cnt FROM service_cache").fetchone()
+            return row["cnt"] if row else 0
+
+    def stats(self) -> dict:
+        """Get cache statistics."""
+        from teamarr.database.connection import get_db
+
+        now = datetime.now().isoformat()
+        with self._lock:
+            with get_db() as conn:
+                total_row = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM service_cache"
+                ).fetchone()
+                expired_row = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM service_cache WHERE expires_at < ?",
+                    (now,),
+                ).fetchone()
+
+            total = total_row["cnt"] if total_row else 0
+            expired = expired_row["cnt"] if expired_row else 0
+            total_requests = self._hits + self._misses
+            hit_rate = self._hits / total_requests if total_requests > 0 else 0
+
+            return {
+                "total_entries": total,
+                "active_entries": total - expired,
+                "expired_entries": expired,
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": round(hit_rate, 3),
+                "persistent": True,
+            }
+
+
 # Cache TTL constants (seconds)
 # Optimized for typical EPG regeneration patterns (hourly to 24hr)
 CACHE_TTL_TEAM_STATS = 4 * 60 * 60  # 4 hours - record/standings change infrequently
@@ -178,9 +331,9 @@ def make_cache_key(*parts: str) -> str:
 def get_events_cache_ttl(target_date) -> int:
     """Get cache TTL for events based on date proximity.
 
-    Tiered caching - past events are final, today needs fresh data.
+    Tiered caching - past events are final (long TTL), today needs fresh data.
 
-    Past:       8 hours (final, but allow eventual refresh)
+    Past:       180 days (final scores don't change)
     Today:      30 minutes (flex times, live scores)
     Tomorrow:   4 hours (flex scheduling possible)
     Days 2-7:   8 hours (mostly stable)
@@ -192,7 +345,7 @@ def get_events_cache_ttl(target_date) -> int:
     days_from_today = (target_date - today).days
 
     if days_from_today < 0:  # Past
-        return 8 * 60 * 60  # 8 hours
+        return 180 * 24 * 60 * 60  # 180 days
     elif days_from_today == 0:  # Today
         return 30 * 60  # 30 minutes
     elif days_from_today == 1:  # Tomorrow

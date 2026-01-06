@@ -810,6 +810,28 @@ INSERT OR IGNORE INTO cache_meta (id) VALUES (1);
 
 
 -- =============================================================================
+-- SERVICE_CACHE TABLE
+-- Persistent cache for service layer (survives restarts)
+-- Same TTL logic as in-memory cache, just persisted to SQLite
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS service_cache (
+    -- Cache key (e.g., "events:nfl:2026-01-06")
+    cache_key TEXT PRIMARY KEY,
+
+    -- Cached data (JSON serialized)
+    data_json TEXT NOT NULL,
+
+    -- TTL management
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for cleanup of expired entries
+CREATE INDEX IF NOT EXISTS idx_sc_expires ON service_cache(expires_at);
+
+
+-- =============================================================================
 -- MANAGED_CHANNEL_STREAMS TABLE
 -- Multi-stream support for managed channels with priority ordering
 -- Each channel can have multiple streams (failover support)

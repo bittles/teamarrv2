@@ -240,10 +240,14 @@ class HockeyTechClient:
 
         return [game for game in schedule if game.get("date_played") == date_str]
 
+    # Days to look back for .last variable resolution
+    DAYS_BACK = 7
+
     def get_team_schedule(self, league: str, team_id: str, days_ahead: int = 14) -> list[dict]:
-        """Get upcoming games for a specific team.
+        """Get schedule for a specific team including past and future games.
 
         Filters the full schedule for games where this team is home or away.
+        Includes past games (DAYS_BACK) for .last template variable resolution.
 
         Args:
             league: League code
@@ -251,24 +255,25 @@ class HockeyTechClient:
             days_ahead: Number of days to look ahead
 
         Returns:
-            List of game dicts for this team
+            List of game dicts for this team (sorted by date)
         """
         from datetime import timedelta
 
         schedule = self.get_schedule(league)
         today = date.today()
+        start_date = today - timedelta(days=self.DAYS_BACK)
         end_date = today + timedelta(days=days_ahead)
 
         team_games = []
         for game in schedule:
             # Check if team is home or away
             if game.get("home_team") == team_id or game.get("visiting_team") == team_id:
-                # Check date is within range
+                # Check date is within range (includes past games)
                 game_date_str = game.get("date_played")
                 if game_date_str:
                     try:
                         game_date = date.fromisoformat(game_date_str)
-                        if today <= game_date <= end_date:
+                        if start_date <= game_date <= end_date:
                             team_games.append(game)
                     except ValueError:
                         continue
