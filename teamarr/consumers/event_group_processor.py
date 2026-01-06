@@ -1793,7 +1793,7 @@ class EventGroupProcessor:
         """
         from teamarr.config import get_user_timezone
 
-        filler_generator = EventFillerGenerator()
+        filler_generator = EventFillerGenerator(self._service)
         result = EventFillerResult()
 
         # Get configured timezone

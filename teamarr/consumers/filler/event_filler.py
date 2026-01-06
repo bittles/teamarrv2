@@ -12,7 +12,8 @@ Reuses:
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from teamarr.core import Event, Programme
+from teamarr.core import Event, Programme, TeamStats
+from teamarr.services.sports_data import SportsDataService
 from teamarr.templates.context import GameContext, TeamChannelContext, TemplateContext
 from teamarr.templates.resolver import TemplateResolver
 from teamarr.utilities.sports import get_sport_duration
@@ -88,7 +89,7 @@ class EventFillerGenerator:
     schedule awareness or .next/.last context.
 
     Usage:
-        generator = EventFillerGenerator()
+        generator = EventFillerGenerator(service)
         programmes = generator.generate(
             event=event,
             channel_id="teamarr-event-12345",
@@ -97,8 +98,11 @@ class EventFillerGenerator:
         )
     """
 
-    def __init__(self):
+    def __init__(self, service: SportsDataService | None = None):
+        self._service = service
         self._resolver = TemplateResolver()
+        # Cache for team stats to avoid redundant API calls within a generation run
+        self._stats_cache: dict[tuple[str, str], TeamStats | None] = {}
 
     def generate(
         self,
@@ -307,8 +311,11 @@ class EventFillerGenerator:
 
         Event filler uses positional variables (home_team, away_team)
         not perspective-based (team_name, opponent). No .next/.last support.
+
+        Fetches team stats if service is available for {home_team_record},
+        {away_team_record} and other stats-based variables.
         """
-        # Build minimal team config for context
+        # Build minimal team config for context (home team perspective)
         team_config = TeamChannelContext(
             team_id=event.home_team.id,
             league=event.league,
@@ -317,22 +324,49 @@ class EventFillerGenerator:
             team_abbrev=event.home_team.abbreviation,
         )
 
+        # Fetch team stats if service is available
+        home_stats = self._get_team_stats(event.home_team.id, event.league)
+        away_stats = self._get_team_stats(event.away_team.id, event.league)
+
         # Build game context with home perspective (for positional vars)
+        # Include opponent_stats for away team record variables
         game_context = GameContext(
             event=event,
             is_home=True,
             team=event.home_team,
             opponent=event.away_team,
+            opponent_stats=away_stats,
         )
 
         return TemplateContext(
             game_context=game_context,
             team_config=team_config,
-            team_stats=None,  # Event filler doesn't need stats
+            team_stats=home_stats,  # Home team stats for {home_team_record}
             team=event.home_team,
             next_game=None,  # No .next for event filler
             last_game=None,  # No .last for event filler
         )
+
+    def _get_team_stats(self, team_id: str, league: str) -> TeamStats | None:
+        """Get team stats with caching.
+
+        Returns None if no service is available or stats can't be fetched.
+        """
+        if not self._service:
+            return None
+
+        cache_key = (team_id, league)
+        if cache_key not in self._stats_cache:
+            try:
+                self._stats_cache[cache_key] = self._service.get_team_stats(team_id, league)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Failed to fetch stats for team {team_id}: {e}"
+                )
+                self._stats_cache[cache_key] = None
+        return self._stats_cache[cache_key]
 
     def _select_postgame_template(self, event: Event, config: EventFillerConfig) -> FillerTemplate:
         """Select appropriate postgame template based on game status.
