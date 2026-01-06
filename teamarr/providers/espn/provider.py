@@ -113,17 +113,89 @@ class ESPNProvider(UFCParserMixin, TournamentParserMixin, SportsProvider):
         league: str,
         days_ahead: int = 14,
     ) -> list[Event]:
-        """Fetch team schedule by scanning scoreboard for upcoming days.
+        """Fetch team schedule using hybrid approach.
 
-        ESPN's schedule endpoint has limitations that make scoreboard scanning
-        more reliable:
-        - Soccer: schedule endpoint only returns past games
-        - US sports: schedule endpoint only returns regular season (no playoffs)
+        Uses two sources for comprehensive coverage:
+        1. Schedule endpoint: Gets ALL past games (efficient, single call)
+           - Needed for .last template variables
+           - Works regardless of how long ago the last game was
+        2. Scoreboard scanning: Gets future games (days_ahead days)
+           - More reliable for playoffs (schedule endpoint may not include them)
+           - Works for all sports including soccer
 
-        Scoreboard scanning works consistently for all sports and game types.
+        This hybrid approach ensures .last variables work even during long breaks
+        (bye weeks, all-star break, offseason) while still capturing playoffs.
         """
         sport_league = self._get_sport_league_from_db(league)
-        return self._scan_scoreboard_for_team(team_id, league, days_ahead, sport_league)
+        events = []
+        today = date.today()
+        seen_ids: set[str] = set()
+
+        # 1. Get past games from schedule endpoint (all past games in one call)
+        past_events = self._get_past_games_from_schedule(team_id, league, sport_league)
+        for event in past_events:
+            if event.id not in seen_ids:
+                seen_ids.add(event.id)
+                events.append(event)
+
+        # 2. Get future games from scoreboard scanning (reliable for playoffs)
+        future_events = self._scan_scoreboard_for_team(team_id, league, days_ahead, sport_league)
+        for event in future_events:
+            if event.id not in seen_ids:
+                seen_ids.add(event.id)
+                events.append(event)
+
+        events.sort(key=lambda e: e.start_time)
+        return events
+
+    def _get_past_games_from_schedule(
+        self,
+        team_id: str,
+        league: str,
+        sport_league: tuple[str, str] | None = None,
+    ) -> list[Event]:
+        """Get past games from ESPN's schedule endpoint.
+
+        Returns all completed games from the season. More efficient than
+        scanning scoreboards day by day, and works regardless of how long
+        ago the last game was.
+        """
+        data = self._client.get_team_schedule(league, team_id, sport_league)
+        if not data:
+            return []
+
+        events = []
+        today = date.today()
+
+        for event_data in data.get("events", []):
+            # Parse the event date
+            event_date_str = event_data.get("date", "")[:10]  # "2026-01-05"
+            if not event_date_str:
+                continue
+
+            try:
+                event_date = date.fromisoformat(event_date_str)
+            except ValueError:
+                continue
+
+            # Only include past games (before today)
+            if event_date >= today:
+                continue
+
+            event = self._parse_schedule_event(event_data, league)
+            if event:
+                events.append(event)
+
+        return events
+
+    def _parse_schedule_event(self, event_data: dict, league: str) -> Event | None:
+        """Parse an event from the schedule endpoint.
+
+        Schedule endpoint format is slightly different from scoreboard.
+        """
+        # Schedule endpoint uses similar structure to scoreboard
+        # Try to parse using existing method
+        return self._parse_event(event_data, league)
 
     def _scan_scoreboard_for_team(
         self,
@@ -131,35 +203,16 @@ class ESPNProvider(UFCParserMixin, TournamentParserMixin, SportsProvider):
         league: str,
         days_ahead: int,
         sport_league: tuple[str, str] | None = None,
-        days_back: int = 7,
     ) -> list[Event]:
-        """Get team schedule by scanning scoreboard for past and upcoming days.
+        """Get future games by scanning scoreboard.
 
-        Scans the scoreboard for the past N days and next M days, filtering for
-        games involving the specified team. This approach works for all sports
+        Scans the scoreboard for the next N days, filtering for games
+        involving the specified team. This approach works for all sports
         and captures both regular season and playoff games.
-
-        Past games are needed for .last template variable resolution.
         """
         events = []
         today = date.today()
 
-        # Scan past days (for .last variable resolution)
-        for day_offset in range(days_back, 0, -1):
-            target_date = today - timedelta(days=day_offset)
-            date_str = target_date.strftime("%Y%m%d")
-
-            data = self._client.get_scoreboard(league, date_str, sport_league)
-            if not data:
-                continue
-
-            for event_data in data.get("events", []):
-                if self._team_in_event(team_id, event_data):
-                    event = self._parse_event(event_data, league)
-                    if event:
-                        events.append(event)
-
-        # Scan future days (existing behavior)
         for day_offset in range(days_ahead):
             target_date = today + timedelta(days=day_offset)
             date_str = target_date.strftime("%Y%m%d")
@@ -169,13 +222,11 @@ class ESPNProvider(UFCParserMixin, TournamentParserMixin, SportsProvider):
                 continue
 
             for event_data in data.get("events", []):
-                # Check if this team is playing
                 if self._team_in_event(team_id, event_data):
                     event = self._parse_event(event_data, league)
                     if event:
                         events.append(event)
 
-        events.sort(key=lambda e: e.start_time)
         return events
 
     def _team_in_event(self, team_id: str, event_data: dict) -> bool:
