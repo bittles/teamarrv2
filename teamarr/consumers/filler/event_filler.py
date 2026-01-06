@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 from teamarr.core import Event, Programme, TeamStats
 from teamarr.services.sports_data import SportsDataService
-from teamarr.templates.context import GameContext, TeamChannelContext, TemplateContext
+from teamarr.templates.context import GameContext, Odds, TeamChannelContext, TemplateContext
 from teamarr.templates.resolver import TemplateResolver
 from teamarr.utilities.sports import get_sport_duration
 from teamarr.utilities.time_blocks import create_filler_chunks
@@ -312,9 +312,14 @@ class EventFillerGenerator:
         Event filler uses positional variables (home_team, away_team)
         not perspective-based (team_name, opponent). No .next/.last support.
 
-        Fetches team stats if service is available for {home_team_record},
-        {away_team_record} and other stats-based variables.
+        Fetches team stats and enriches ESPN events for odds if service available.
         """
+        # Enrich ESPN events to get odds (TSDB enrichment adds no value)
+        if self._service and event.provider == "espn":
+            enriched = self._service.get_event(event.id, event.league)
+            if enriched:
+                event = enriched
+
         # Build minimal team config for context (home team perspective)
         team_config = TeamChannelContext(
             team_id=event.home_team.id,
@@ -328,6 +333,9 @@ class EventFillerGenerator:
         home_stats = self._get_team_stats(event.home_team.id, event.league)
         away_stats = self._get_team_stats(event.away_team.id, event.league)
 
+        # Build odds from enriched event data (home team perspective)
+        odds = self._build_odds(event.odds_data, is_home=True) if event.odds_data else None
+
         # Build game context with home perspective (for positional vars)
         # Include opponent_stats for away team record variables
         game_context = GameContext(
@@ -336,6 +344,7 @@ class EventFillerGenerator:
             team=event.home_team,
             opponent=event.away_team,
             opponent_stats=away_stats,
+            odds=odds,
         )
 
         return TemplateContext(
@@ -345,6 +354,27 @@ class EventFillerGenerator:
             team=event.home_team,
             next_game=None,  # No .next for event filler
             last_game=None,  # No .last for event filler
+        )
+
+    def _build_odds(self, odds_data: dict, is_home: bool) -> Odds:
+        """Convert raw odds dict to Odds dataclass.
+
+        Adjusts moneylines based on home/away perspective.
+        """
+        if is_home:
+            team_ml = odds_data.get("home_moneyline") or 0
+            opp_ml = odds_data.get("away_moneyline") or 0
+        else:
+            team_ml = odds_data.get("away_moneyline") or 0
+            opp_ml = odds_data.get("home_moneyline") or 0
+
+        return Odds(
+            provider=odds_data.get("provider", ""),
+            spread=abs(odds_data.get("spread", 0.0)),
+            over_under=odds_data.get("over_under", 0.0),
+            details=odds_data.get("details", ""),
+            team_moneyline=team_ml,
+            opponent_moneyline=opp_ml,
         )
 
     def _get_team_stats(self, team_id: str, league: str) -> TeamStats | None:
