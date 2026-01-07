@@ -432,6 +432,7 @@ class TeamEPGGenerator:
         # Build filler options from EPG options
         filler_options = FillerOptions(
             output_days_ahead=options.output_days_ahead,
+            lookback_hours=options.lookback_hours,
             epg_timezone=options.epg_timezone,
             midnight_crossover_mode=options.midnight_crossover_mode,
             sport_durations=options.sport_durations,

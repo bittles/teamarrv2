@@ -92,6 +92,7 @@ class FillerOptions:
 
     # EPG window
     output_days_ahead: int = 14
+    lookback_hours: int = 6  # How far back to start EPG (for recently finished games)
 
     # Timezone for EPG
     epg_timezone: str = "America/New_York"

@@ -614,30 +614,23 @@ class FillerGenerator:
         now: datetime,
         options: FillerOptions,
     ) -> datetime:
-        """Calculate EPG start time, synchronized with earliest event.
+        """Calculate EPG start time based on lookback_hours.
 
-        The EPG should start from the earliest event that's in the past
-        (so we can show postgame filler after it ends), or from now if
-        all events are in the future.
+        The EPG should start from lookback_hours before now, not from
+        the earliest event (which could be months ago for team schedules).
+        This ensures we only generate filler for the current EPG window.
 
         Args:
-            events: List of events included in EPG output
+            events: List of events (used for context, not start time)
             now: Current time
             options: Filler options
 
         Returns:
-            EPG start datetime - earliest past event start or current time
+            EPG start datetime - lookback_hours before now
         """
-        # Find earliest event that started before now
-        # These are completed or in-progress games that need postgame coverage
-        for event in events:
-            event_start = event.start_time
-            if event_start <= now:
-                # Found a past/current event - start EPG from its start time
-                return event_start
-
-        # All events are in the future - start from current time
-        return now.replace(second=0, microsecond=0)
+        # Start from lookback_hours before now (default 6 hours)
+        # This matches the team_epg output window calculation
+        return now - timedelta(hours=options.lookback_hours)
 
     def _get_sport(self, league: str) -> str:
         """Derive sport from league identifier (fallback).
