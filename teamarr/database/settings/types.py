@@ -54,6 +54,7 @@ class EPGSettings:
 
     team_schedule_days_ahead: int = 30
     event_match_days_ahead: int = 3
+    event_match_days_back: int = 7
     epg_output_days_ahead: int = 14
     epg_lookback_hours: int = 6
     epg_timezone: str = "America/New_York"
@@ -129,4 +130,4 @@ class AllSettings:
     api: APISettings = field(default_factory=APISettings)
     stream_filter: StreamFilterSettings = field(default_factory=StreamFilterSettings)
     epg_generation_counter: int = 0
-    schema_version: int = 13
+    schema_version: int = 17

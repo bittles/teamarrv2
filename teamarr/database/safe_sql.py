@@ -86,6 +86,7 @@ VALID_COLUMNS: dict[str, set[str]] = {
         # Settings has many columns - list primary ones
         "team_schedule_days_ahead",
         "event_match_days_ahead",
+        "event_match_days_back",
         "epg_output_days_ahead",
         "epg_lookback_hours",
         "duration_default",

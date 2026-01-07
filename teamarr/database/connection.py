@@ -609,6 +609,16 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         logger.info("Schema upgraded to version 16 (excluded breakdown columns)")
         current_version = 16
 
+    # Version 17: Add event_match_days_back to settings
+    # Allows looking further back for weekly sports like NFL (default 7 days)
+    if current_version < 17:
+        _add_column_if_not_exists(
+            conn, "settings", "event_match_days_back", "INTEGER DEFAULT 7"
+        )
+        conn.execute("UPDATE settings SET schema_version = 17 WHERE id = 1")
+        logger.info("Schema upgraded to version 17 (settings.event_match_days_back)")
+        current_version = 17
+
 
 def _rename_filtered_no_match_to_failed_count(conn: sqlite3.Connection) -> None:
     """Rename filtered_no_match column to failed_count.

@@ -84,6 +84,7 @@ def get_all_settings(conn: Connection) -> AllSettings:
         epg=EPGSettings(
             team_schedule_days_ahead=row["team_schedule_days_ahead"] or 30,
             event_match_days_ahead=row["event_match_days_ahead"] or 3,
+            event_match_days_back=row["event_match_days_back"] or 7,
             epg_output_days_ahead=row["epg_output_days_ahead"] or 14,
             epg_lookback_hours=row["epg_lookback_hours"] or 6,
             epg_timezone=row["epg_timezone"] or "America/New_York",
@@ -214,7 +215,7 @@ def get_epg_settings(conn: Connection) -> EPGSettings:
         EPGSettings object
     """
     cursor = conn.execute(
-        """SELECT team_schedule_days_ahead, event_match_days_ahead,
+        """SELECT team_schedule_days_ahead, event_match_days_ahead, event_match_days_back,
                   epg_output_days_ahead, epg_lookback_hours, epg_timezone,
                   epg_output_path, include_final_events, midnight_crossover_mode,
                   cron_expression
@@ -228,6 +229,7 @@ def get_epg_settings(conn: Connection) -> EPGSettings:
     return EPGSettings(
         team_schedule_days_ahead=row["team_schedule_days_ahead"] or 30,
         event_match_days_ahead=row["event_match_days_ahead"] or 3,
+        event_match_days_back=row["event_match_days_back"] or 7,
         epg_output_days_ahead=row["epg_output_days_ahead"] or 14,
         epg_lookback_hours=row["epg_lookback_hours"] or 6,
         epg_timezone=row["epg_timezone"] or "America/New_York",

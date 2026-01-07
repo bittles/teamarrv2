@@ -145,6 +145,7 @@ def update_epg_settings(conn: Connection, **kwargs) -> bool:
     field_mapping = {
         "team_schedule_days_ahead": "team_schedule_days_ahead",
         "event_match_days_ahead": "event_match_days_ahead",
+        "event_match_days_back": "event_match_days_back",
         "epg_output_days_ahead": "epg_output_days_ahead",
         "epg_lookback_hours": "epg_lookback_hours",
         "epg_timezone": "epg_timezone",

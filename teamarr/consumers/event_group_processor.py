@@ -1265,8 +1265,9 @@ class EventGroupProcessor:
     def _fetch_events(self, leagues: list[str], target_date: date) -> list[Event]:
         """Fetch events from data providers for leagues in parallel.
 
-        Fetches both today's events AND yesterday's events to catch games
-        that started yesterday but are still ongoing (crossed midnight).
+        Uses event_match_days_back and event_match_days_ahead settings to
+        determine the date range. This handles weekly sports like NFL where
+        games may be 7 days apart.
         """
         if not leagues:
             return []
@@ -1274,9 +1275,20 @@ class EventGroupProcessor:
         all_events: list[Event] = []
         num_workers = min(MAX_WORKERS, len(leagues))
 
-        # Fetch both today and yesterday to catch ongoing games that crossed midnight
-        yesterday = target_date - timedelta(days=1)
-        dates_to_fetch = [yesterday, target_date]
+        # Load date range settings
+        with self._db_factory() as conn:
+            row = conn.execute(
+                "SELECT event_match_days_back, event_match_days_ahead FROM settings WHERE id = 1"
+            ).fetchone()
+            days_back = row["event_match_days_back"] if row and row["event_match_days_back"] else 7
+            days_ahead = row["event_match_days_ahead"] if row and row["event_match_days_ahead"] else 3
+
+        # Build date range: [target - days_back, target + days_ahead]
+        dates_to_fetch = [
+            target_date + timedelta(days=offset)
+            for offset in range(-days_back, days_ahead + 1)
+        ]
+        logger.debug(f"Fetching events from {dates_to_fetch[0]} to {dates_to_fetch[-1]} ({len(dates_to_fetch)} days)")
 
         def fetch_league_events(league: str, fetch_date: date) -> tuple[str, date, list[Event]]:
             """Fetch events for a single league/date (for parallel execution)."""
