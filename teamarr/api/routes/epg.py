@@ -165,6 +165,9 @@ def generate_epg_stream():
 
     def generate():
         """Generator function for SSE stream."""
+        # Send initial status immediately so frontend knows connection is alive
+        # (SSE comments like `: heartbeat` don't trigger onmessage)
+        yield f"data: {json.dumps(get_status())}\n\n"
 
         def run_generation():
             """Run EPG generation in background thread."""

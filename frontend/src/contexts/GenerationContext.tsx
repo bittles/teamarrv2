@@ -91,7 +91,6 @@ function getPhaseLabel(status: GenerationStatus | null): string {
 
 export function GenerationProvider({ children }: { children: ReactNode }) {
   const [isGenerating, setIsGenerating] = useState(false)
-  const eventSourceRef = useRef<EventSource | null>(null)
   const onCompleteRef = useRef<((result: GenerationStatus["result"]) => void) | null>(null)
   const pollIntervalRef = useRef<number | null>(null)
   const backgroundPollRef = useRef<number | null>(null)
@@ -174,33 +173,16 @@ export function GenerationProvider({ children }: { children: ReactNode }) {
     // Create initial toast
     updateToast(null as unknown as GenerationStatus, true)
 
-    // Start SSE connection
-    const eventSource = new EventSource("/api/v1/epg/generate/stream")
-    eventSourceRef.current = eventSource
+    // Trigger generation via SSE endpoint (fire-and-forget, we'll poll for progress)
+    // SSE doesn't work reliably through Vite's proxy (buffering issues)
+    // so we use polling instead of reading the SSE stream
+    fetch("/api/v1/epg/generate/stream").catch((err) => {
+      console.error("Generation request failed:", err)
+    })
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as GenerationStatus
-        updateToast(data)
-
-        if (data.status === "complete" || data.status === "error") {
-          eventSource.close()
-          eventSourceRef.current = null
-          handleComplete(data)
-        }
-      } catch (e) {
-        console.error("Failed to parse SSE data:", e)
-      }
-    }
-
-    eventSource.onerror = () => {
-      eventSource.close()
-      eventSourceRef.current = null
-
-      // Fall back to polling
-      reconnectToGeneration()
-    }
-  }, [isGenerating, updateToast, handleComplete, reconnectToGeneration])
+    // Start polling immediately for progress updates
+    reconnectToGeneration()
+  }, [isGenerating, updateToast, reconnectToGeneration])
 
   // Check for in-progress generation on mount and periodically
   // This detects scheduled runs that start while the UI is open
@@ -227,9 +209,6 @@ export function GenerationProvider({ children }: { children: ReactNode }) {
     return () => {
       if (backgroundPollRef.current) {
         clearInterval(backgroundPollRef.current)
-      }
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
       }
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current)
