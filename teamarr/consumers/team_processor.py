@@ -489,6 +489,7 @@ class TeamProcessor:
         return TeamEPGOptions(
             schedule_days_ahead=settings.get("team_schedule_days_ahead", 30),
             output_days_ahead=settings.get("epg_output_days_ahead", 14),
+            lookback_hours=settings.get("epg_lookback_hours", 6),
             default_duration_hours=settings.get("duration_default", 3.0),
             sport_durations=sport_durations,
             epg_timezone=settings.get("epg_timezone", "America/New_York"),

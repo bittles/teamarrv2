@@ -192,12 +192,20 @@ class EventEPGGenerator:
             icon = event.home_team.logo_url if event.home_team else None
 
         # Resolve categories (may contain {sport} variable)
+        # Apply title case for proper XMLTV formatting (e.g., "Football" not "football")
         resolved_categories = []
         for cat in options.template.xmltv_categories:
             if "{" in cat:
-                resolved_categories.append(self._resolver.resolve(cat, context))
+                resolved_categories.append(self._resolver.resolve(cat, context).title())
             else:
-                resolved_categories.append(cat)
+                resolved_categories.append(cat.title())
+
+        # Resolve primary category (may contain {sport} variable)
+        resolved_category = options.template.category
+        if "{" in resolved_category:
+            resolved_category = self._resolver.resolve(resolved_category, context).title()
+        else:
+            resolved_category = resolved_category.title()
 
         return Programme(
             channel_id=channel_id,
@@ -206,7 +214,7 @@ class EventEPGGenerator:
             stop=stop,
             description=description,
             subtitle=subtitle,
-            category=options.template.category,
+            category=resolved_category,
             icon=icon,
             categories=resolved_categories,
             xmltv_flags=options.template.xmltv_flags,

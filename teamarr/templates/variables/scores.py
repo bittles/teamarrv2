@@ -67,7 +67,7 @@ def extract_score(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     name="final_score",
     category=Category.SCORES,
     suffix_rules=SuffixRules.LAST_ONLY,
-    description="Final score with team perspective (e.g., 'W 24-17' or 'L 17-24')",
+    description="Final score with team perspective (e.g., '24-17' with team score first)",
 )
 def extract_final_score(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     is_home = _is_team_home(ctx, game_ctx)
@@ -80,12 +80,8 @@ def extract_final_score(ctx: TemplateContext, game_ctx: GameContext | None) -> s
     team_score = event.home_score if is_home else event.away_score
     opp_score = event.away_score if is_home else event.home_score
 
-    if team_score > opp_score:
-        return f"W {team_score}-{opp_score}"
-    elif team_score < opp_score:
-        return f"L {opp_score}-{team_score}"
-    else:
-        return f"T {team_score}-{opp_score}"
+    # Team score always first (winner's perspective for wins, team's perspective for losses)
+    return f"{team_score}-{opp_score}"
 
 
 @register_variable(

@@ -29,6 +29,7 @@ class TeamEPGOptions:
 
     schedule_days_ahead: int = 30  # How far to fetch schedule (for .next vars)
     output_days_ahead: int = 14  # How many days to include in XMLTV
+    lookback_hours: int = 6  # How far back to include events (for recently finished games)
     pregame_minutes: int = 0
     default_duration_hours: float = 3.0
     template: TemplateConfig | None = None  # REQUIRED - must be loaded from database
@@ -229,8 +230,9 @@ class TeamEPGGenerator:
         # Calculate output window
         now = now_user()
         today = now.date()
-        # Use end-of-day in user timezone for cutoff to avoid excluding evening games
-        # whose UTC time falls on the next day
+        # EPG start: lookback_hours before now (for recently finished games)
+        output_start_time = now - timedelta(hours=options.lookback_hours)
+        # EPG end: output_days_ahead from today
         output_cutoff_date = today + timedelta(days=options.output_days_ahead)
 
         programmes = []
@@ -277,9 +279,15 @@ class TeamEPGGenerator:
                     continue
                 # else: Today's final with include_final_events=True - include it
 
+            # Skip events before the lookback window
+            # Use event start time (in user timezone) for comparison
+            event_start_user = to_user_tz(event.start_time)
+            if event_start_user < output_start_time:
+                continue
+
             # Skip events beyond the output window
             # Compare dates in user timezone to match filler generation behavior
-            event_date = to_user_tz(event.start_time).date()
+            event_date = event_start_user.date()
             if event_date > output_cutoff_date:
                 continue
 
@@ -370,12 +378,20 @@ class TeamEPGGenerator:
             icon = logo_url or (event.home_team.logo_url if event.home_team else None)
 
         # Resolve categories (may contain {sport} variable)
+        # Apply title case for proper XMLTV formatting (e.g., "Football" not "football")
         resolved_categories = []
         for cat in options.template.xmltv_categories:
             if "{" in cat:
-                resolved_categories.append(self._resolver.resolve(cat, context))
+                resolved_categories.append(self._resolver.resolve(cat, context).title())
             else:
-                resolved_categories.append(cat)
+                resolved_categories.append(cat.title())
+
+        # Resolve primary category (may contain {sport} variable)
+        resolved_category = options.template.category
+        if "{" in resolved_category:
+            resolved_category = self._resolver.resolve(resolved_category, context).title()
+        else:
+            resolved_category = resolved_category.title()
 
         return Programme(
             channel_id=channel_id,
@@ -384,7 +400,7 @@ class TeamEPGGenerator:
             stop=stop,
             description=description,
             subtitle=subtitle,
-            category=options.template.category,
+            category=resolved_category,
             icon=icon,
             categories=resolved_categories,
             xmltv_flags=options.template.xmltv_flags,

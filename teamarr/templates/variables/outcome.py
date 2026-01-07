@@ -68,48 +68,14 @@ def extract_result_lower(ctx: TemplateContext, game_ctx: GameContext | None) -> 
     name="result_text",
     category=Category.OUTCOME,
     suffix_rules=SuffixRules.LAST_ONLY,
-    description="Game result as text ('Win', 'Loss', 'Tie')",
+    description="Game result as text ('defeated', 'lost to', 'tied')",
 )
 def extract_result_text(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     result = _get_result(ctx, game_ctx)
     if result == "win":
-        return "Win"
-    elif result == "loss":
-        return "Loss"
-    elif result == "tie":
-        return "Tie"
-    return ""
-
-
-@register_variable(
-    name="result_verb",
-    category=Category.OUTCOME,
-    suffix_rules=SuffixRules.LAST_ONLY,
-    description="Result as verb ('beat', 'lost to', 'tied')",
-)
-def extract_result_verb(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
-    result = _get_result(ctx, game_ctx)
-    if result == "win":
-        return "beat"
-    elif result == "loss":
-        return "lost to"
-    elif result == "tie":
-        return "tied"
-    return ""
-
-
-@register_variable(
-    name="result_verb_past",
-    category=Category.OUTCOME,
-    suffix_rules=SuffixRules.LAST_ONLY,
-    description="Result as past verb ('defeated', 'fell to', 'tied')",
-)
-def extract_result_verb_past(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
-    result = _get_result(ctx, game_ctx)
-    if result == "win":
         return "defeated"
     elif result == "loss":
-        return "fell to"
+        return "lost to"
     elif result == "tie":
         return "tied"
     return ""

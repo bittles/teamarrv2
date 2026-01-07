@@ -489,6 +489,8 @@ class ChannelManager:
     ) -> OperationResult:
         """Add channel to a channel profile.
 
+        Uses the per-channel endpoint to enable the channel in the profile.
+
         Args:
             profile_id: Channel profile ID
             channel_id: Channel ID to add
@@ -496,9 +498,9 @@ class ChannelManager:
         Returns:
             OperationResult with success status
         """
-        response = self._client.post(
-            f"/api/channels/profiles/{profile_id}/add-channel/",
-            {"channel_id": channel_id},
+        response = self._client.patch(
+            f"/api/channels/profiles/{profile_id}/channels/{channel_id}/",
+            {"enabled": True},
         )
 
         if response is None:
@@ -507,7 +509,7 @@ class ChannelManager:
                 error=self._client.parse_api_error(response),
             )
 
-        if response.status_code in (200, 201):
+        if response.status_code == 200:
             return OperationResult(success=True)
 
         return OperationResult(
@@ -522,6 +524,8 @@ class ChannelManager:
     ) -> OperationResult:
         """Remove channel from a channel profile.
 
+        Uses the per-channel endpoint to disable the channel in the profile.
+
         Args:
             profile_id: Channel profile ID
             channel_id: Channel ID to remove
@@ -529,9 +533,9 @@ class ChannelManager:
         Returns:
             OperationResult with success status
         """
-        response = self._client.post(
-            f"/api/channels/profiles/{profile_id}/remove-channel/",
-            {"channel_id": channel_id},
+        response = self._client.patch(
+            f"/api/channels/profiles/{profile_id}/channels/{channel_id}/",
+            {"enabled": False},
         )
 
         if response is None:
@@ -540,7 +544,7 @@ class ChannelManager:
                 error=self._client.parse_api_error(response),
             )
 
-        if response.status_code in (200, 204):
+        if response.status_code == 200:
             return OperationResult(success=True)
 
         return OperationResult(
