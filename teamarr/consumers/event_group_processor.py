@@ -1344,8 +1344,11 @@ class EventGroupProcessor:
 
         # Load settings for event filtering
         with self._db_factory() as conn:
-            row = conn.execute("SELECT include_final_events FROM settings WHERE id = 1").fetchone()
+            row = conn.execute(
+                "SELECT include_final_events, event_match_days_back FROM settings WHERE id = 1"
+            ).fetchone()
             include_final_events = bool(row["include_final_events"]) if row else False
+            days_back = row["event_match_days_back"] if row and row["event_match_days_back"] else 7
 
         sport_durations = self._load_sport_durations_cached()
 
@@ -1360,6 +1363,7 @@ class EventGroupProcessor:
             generation=getattr(self, "_generation", None),  # Use shared generation if set
             custom_regex_teams=group.custom_regex_teams,
             custom_regex_teams_enabled=group.custom_regex_teams_enabled,
+            days_back=days_back,
         )
 
         result = matcher.match_all(streams, target_date, progress_callback=stream_progress_callback)

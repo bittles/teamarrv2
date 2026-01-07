@@ -121,7 +121,7 @@ export function EPG() {
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useStats()
   const { data: runsData, isLoading: runsLoading, refetch: refetchRuns } = useRecentRuns(10, "full_epg")
   const { data: analysis, isLoading: analysisLoading, refetch: refetchAnalysis } = useEPGAnalysis()
-  const { data: epgContent, isLoading: contentLoading } = useEPGContent(2000)
+  const { data: epgContent, isLoading: contentLoading } = useEPGContent(0) // 0 = no limit
   const { formatDateTime, formatRelativeTime } = useDateFormat()
 
   const [isDownloading, setIsDownloading] = useState(false)
@@ -683,15 +683,9 @@ export function EPG() {
                 {/* XML Content */}
                 <pre
                   ref={previewRef}
-                  className="bg-muted/50 rounded-lg p-4 text-xs font-mono overflow-auto max-h-96"
+                  className="bg-muted/50 rounded-lg p-4 text-xs font-mono overflow-auto"
                   dangerouslySetInnerHTML={{ __html: highlightedContent }}
                 />
-
-                {epgContent.truncated && (
-                  <p className="text-xs text-muted-foreground text-center">
-                    Showing first 2000 lines of {epgContent.total_lines} total
-                  </p>
-                )}
               </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground">

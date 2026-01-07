@@ -50,6 +50,10 @@ class MatchContext:
     # Sport durations for ongoing event detection (hours)
     sport_durations: dict[str, float] = field(default_factory=dict)
 
+    # Days back for event matching (from event_match_days_back setting)
+    # Default 7 for weekly sports like NFL
+    days_back: int = 7
+
     def is_event_in_search_window(self, event: "Event") -> bool:
         """Check if an event falls within the search window for matching.
 
@@ -58,7 +62,7 @@ class MatchContext:
         allowing users to see that streams matched correctly even if events are over.
 
         Returns True if event is within search window:
-        - MATCH_DAYS_BACK = 2: yesterday and day before (for "what matched yesterday" queries)
+        - Uses days_back from event_match_days_back setting (default 7 for weekly sports)
         - Today and future events up to extracted_date (if any) are always included
 
         Final/completed status is NOT checked here - lifecycle handles exclusions.
@@ -66,8 +70,8 @@ class MatchContext:
         event_start = event.start_time.astimezone(self.user_tz)
         event_date = event_start.date()
 
-        # Check if event is within search window
-        earliest_date = self.target_date - timedelta(days=2)  # 2 days back
+        # Check if event is within search window (uses configurable days_back)
+        earliest_date = self.target_date - timedelta(days=self.days_back)
 
         return event_date >= earliest_date
 
@@ -111,6 +115,7 @@ class TeamMatcher:
         generation: int,
         user_tz: ZoneInfo,
         sport_durations: dict[str, float] | None = None,
+        days_back: int = 7,
     ) -> MatchOutcome:
         """Single-league matching - search only the specified league.
 
@@ -147,6 +152,7 @@ class TeamMatcher:
             team1=classified.team1,
             team2=classified.team2,
             sport_durations=sport_durations or {},
+            days_back=days_back,
         )
 
         # Check cache first
@@ -154,14 +160,12 @@ class TeamMatcher:
         if cache_result:
             return cache_result
 
-        # Get events for this league - include past 2 days for exclusion tracking
-        # V2: MATCH_DAYS_BACK = 2 so users can see "matched yesterday's games" as excluded
-        day_before_yesterday = target_date - timedelta(days=2)
-        yesterday = target_date - timedelta(days=1)
-        events_today = self._service.get_events(league, target_date)
-        events_yesterday = self._service.get_events(league, yesterday)
-        events_day_before = self._service.get_events(league, day_before_yesterday)
-        events = events_today + events_yesterday + events_day_before
+        # Get events for this league - include past days_back days for exclusion tracking
+        # Uses configurable days_back for weekly sports like NFL (default 7)
+        events = []
+        for offset in range(-days_back, 1):  # -days_back to 0 (today)
+            fetch_date = target_date + timedelta(days=offset)
+            events.extend(self._service.get_events(league, fetch_date))
 
         if not events:
             return MatchOutcome.failed(
@@ -192,6 +196,7 @@ class TeamMatcher:
         generation: int,
         user_tz: ZoneInfo,
         sport_durations: dict[str, float] | None = None,
+        days_back: int = 7,
     ) -> MatchOutcome:
         """Multi-league matching with league hint detection.
 
@@ -214,6 +219,7 @@ class TeamMatcher:
             generation: Cache generation counter
             user_tz: User timezone for date validation
             sport_durations: Sport duration settings for ongoing event detection
+            days_back: Days back for event matching (for weekly sports like NFL)
 
         Returns:
             MatchOutcome with result
@@ -236,6 +242,7 @@ class TeamMatcher:
             team1=classified.team1,
             team2=classified.team2,
             sport_durations=sport_durations or {},
+            days_back=days_back,
         )
 
         # Check cache first
@@ -261,21 +268,14 @@ class TeamMatcher:
             # No hint, search all enabled leagues
             leagues_to_search = enabled_leagues
 
-        # Gather events from all leagues to search - include past 2 days for exclusion tracking
-        # V2: MATCH_DAYS_BACK = 2 so users can see "matched yesterday's games" as excluded
-        day_before_yesterday = target_date - timedelta(days=2)
-        yesterday = target_date - timedelta(days=1)
+        # Gather events from all leagues to search - include past days_back days for exclusion tracking
+        # Uses configurable days_back for weekly sports like NFL (default 7)
         all_events: list[tuple[str, Event]] = []
         for league in leagues_to_search:
-            events_today = self._service.get_events(league, target_date)
-            events_yesterday = self._service.get_events(league, yesterday)
-            events_day_before = self._service.get_events(league, day_before_yesterday)
-            for event in events_today:
-                all_events.append((league, event))
-            for event in events_yesterday:
-                all_events.append((league, event))
-            for event in events_day_before:
-                all_events.append((league, event))
+            for offset in range(-days_back, 1):  # -days_back to 0 (today)
+                fetch_date = target_date + timedelta(days=offset)
+                for event in self._service.get_events(league, fetch_date):
+                    all_events.append((league, event))
 
         if not all_events:
             return MatchOutcome.failed(

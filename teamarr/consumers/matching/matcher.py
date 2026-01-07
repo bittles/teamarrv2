@@ -157,6 +157,7 @@ class StreamMatcher:
         generation: int | None = None,
         custom_regex_teams: str | None = None,
         custom_regex_teams_enabled: bool = False,
+        days_back: int = 7,
     ):
         """Initialize the matcher.
 
@@ -172,6 +173,7 @@ class StreamMatcher:
             generation: Cache generation counter (if None, will be fetched/incremented)
             custom_regex_teams: Custom regex pattern for extracting team names
             custom_regex_teams_enabled: Whether custom regex is enabled
+            days_back: Days back for event matching (for weekly sports like NFL)
         """
         self._service = service
         self._db_factory = db_factory
@@ -181,6 +183,7 @@ class StreamMatcher:
         self._include_final_events = include_final_events
         self._sport_durations = sport_durations or {}
         self._user_tz = user_tz or get_user_timezone()
+        self._days_back = days_back
 
         # Custom regex configuration
         self._custom_regex = CustomRegexConfig(
@@ -320,6 +323,7 @@ class StreamMatcher:
                 generation=self._generation,
                 user_tz=self._user_tz,
                 sport_durations=self._sport_durations,
+                days_back=self._days_back,
             )
         else:
             return self._team_matcher.match_multi_league(
@@ -331,6 +335,7 @@ class StreamMatcher:
                 generation=self._generation,
                 user_tz=self._user_tz,
                 sport_durations=self._sport_durations,
+                days_back=self._days_back,
             )
 
     def _match_event_card(
