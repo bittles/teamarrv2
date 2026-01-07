@@ -1280,7 +1280,7 @@ class EventGroupProcessor:
             row = conn.execute(
                 "SELECT event_match_days_back, event_match_days_ahead FROM settings WHERE id = 1"
             ).fetchone()
-            days_back = row["event_match_days_back"] if row and row["event_match_days_back"] else 7
+            days_back = row["event_match_days_back"] if row and row["event_match_days_back"] else 2
             days_ahead = row["event_match_days_ahead"] if row and row["event_match_days_ahead"] else 3
 
         # Build date range: [target - days_back, target + days_ahead]
@@ -1293,7 +1293,10 @@ class EventGroupProcessor:
         def fetch_league_events(league: str, fetch_date: date) -> tuple[str, date, list[Event]]:
             """Fetch events for a single league/date (for parallel execution)."""
             try:
-                events = self._service.get_events(league, fetch_date)
+                # TSDB leagues: cache-only (don't hit API during EPG generation)
+                # TSDB cache builds organically from startup/scheduled refresh
+                is_tsdb = self._service.get_provider_name(league) == "tsdb"
+                events = self._service.get_events(league, fetch_date, cache_only=is_tsdb)
                 return (league, fetch_date, events)
             except Exception as e:
                 logger.warning(f"Failed to fetch events for {league} on {fetch_date}: {e}")
@@ -1348,7 +1351,7 @@ class EventGroupProcessor:
                 "SELECT include_final_events, event_match_days_back FROM settings WHERE id = 1"
             ).fetchone()
             include_final_events = bool(row["include_final_events"]) if row else False
-            days_back = row["event_match_days_back"] if row and row["event_match_days_back"] else 7
+            days_back = row["event_match_days_back"] if row and row["event_match_days_back"] else 2
 
         sport_durations = self._load_sport_durations_cached()
 

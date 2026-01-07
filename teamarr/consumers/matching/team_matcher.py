@@ -52,7 +52,7 @@ class MatchContext:
 
     # Days back for event matching (from event_match_days_back setting)
     # Default 7 for weekly sports like NFL
-    days_back: int = 7
+    days_back: int = 2
 
     def is_event_in_search_window(self, event: "Event") -> bool:
         """Check if an event falls within the search window for matching.
@@ -115,7 +115,7 @@ class TeamMatcher:
         generation: int,
         user_tz: ZoneInfo,
         sport_durations: dict[str, float] | None = None,
-        days_back: int = 7,
+        days_back: int = 2,
     ) -> MatchOutcome:
         """Single-league matching - search only the specified league.
 
@@ -160,12 +160,18 @@ class TeamMatcher:
         if cache_result:
             return cache_result
 
-        # Get events for this league - include past days_back days for exclusion tracking
-        # Uses configurable days_back for weekly sports like NFL (default 7)
+        # Fetch events with two-tier strategy:
+        # - Recent dates (within days_back): fetch from API if not cached (ESPN only)
+        # - Older dates (up to MATCH_WINDOW_DAYS): cache-only, no API calls
+        # - TSDB leagues: always cache-only (let cache build organically)
+        MATCH_WINDOW_DAYS = 14  # Look back 14 days in cache for matches
+        is_tsdb = self._service.get_provider_name(league) == "tsdb"
         events = []
-        for offset in range(-days_back, 1):  # -days_back to 0 (today)
+        for offset in range(-MATCH_WINDOW_DAYS, 1):
             fetch_date = target_date + timedelta(days=offset)
-            events.extend(self._service.get_events(league, fetch_date))
+            # TSDB: always cache-only; ESPN: fetch recent, cache-only for older
+            cache_only = is_tsdb or offset < -days_back
+            events.extend(self._service.get_events(league, fetch_date, cache_only=cache_only))
 
         if not events:
             return MatchOutcome.failed(
@@ -196,7 +202,7 @@ class TeamMatcher:
         generation: int,
         user_tz: ZoneInfo,
         sport_durations: dict[str, float] | None = None,
-        days_back: int = 7,
+        days_back: int = 2,
     ) -> MatchOutcome:
         """Multi-league matching with league hint detection.
 
@@ -268,13 +274,19 @@ class TeamMatcher:
             # No hint, search all enabled leagues
             leagues_to_search = enabled_leagues
 
-        # Gather events from all leagues to search - include past days_back days for exclusion tracking
-        # Uses configurable days_back for weekly sports like NFL (default 7)
+        # Fetch events with two-tier strategy:
+        # - Recent dates (within days_back): fetch from API if not cached (ESPN only)
+        # - Older dates (up to MATCH_WINDOW_DAYS): cache-only, no API calls
+        # - TSDB leagues: always cache-only (let cache build organically)
+        MATCH_WINDOW_DAYS = 14  # Look back 14 days in cache for matches
         all_events: list[tuple[str, Event]] = []
         for league in leagues_to_search:
-            for offset in range(-days_back, 1):  # -days_back to 0 (today)
+            is_tsdb = self._service.get_provider_name(league) == "tsdb"
+            for offset in range(-MATCH_WINDOW_DAYS, 1):
                 fetch_date = target_date + timedelta(days=offset)
-                for event in self._service.get_events(league, fetch_date):
+                # TSDB: always cache-only; ESPN: fetch recent, cache-only for older
+                cache_only = is_tsdb or offset < -days_back
+                for event in self._service.get_events(league, fetch_date, cache_only=cache_only):
                     all_events.append((league, event))
 
         if not all_events:

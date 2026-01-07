@@ -75,7 +75,9 @@ class EventEPGGenerator:
 
         all_events: list[Event] = []
         for league in leagues:
-            events = self._service.get_events(league, target_date)
+            # TSDB leagues use cache-only (no API calls during generation)
+            is_tsdb = self._service.get_provider_name(league) == "tsdb"
+            events = self._service.get_events(league, target_date, cache_only=is_tsdb)
             all_events.extend(events)
 
         programmes = []

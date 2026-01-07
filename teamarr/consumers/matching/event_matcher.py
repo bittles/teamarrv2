@@ -114,8 +114,9 @@ class EventCardMatcher:
         if cache_result:
             return cache_result
 
-        # Get events for this league
-        events = self._service.get_events(league, target_date)
+        # Get events for this league (TSDB leagues use cache-only)
+        is_tsdb = self._service.get_provider_name(league) == "tsdb"
+        events = self._service.get_events(league, target_date, cache_only=is_tsdb)
         if not events:
             return MatchOutcome.failed(
                 FailedReason.NO_EVENT_CARD_MATCH,

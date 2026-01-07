@@ -157,7 +157,7 @@ class StreamMatcher:
         generation: int | None = None,
         custom_regex_teams: str | None = None,
         custom_regex_teams_enabled: bool = False,
-        days_back: int = 7,
+        days_back: int = 2,
     ):
         """Initialize the matcher.
 
@@ -227,6 +227,9 @@ class StreamMatcher:
 
         # Load league event types
         self._load_league_event_types()
+
+        # Matching uses service cache directly (180-day TTL for past events)
+        # No prefetch needed - cache hits are fast SQLite lookups
 
         result = BatchMatchResult(
             target_date=target_date,
@@ -314,9 +317,10 @@ class StreamMatcher:
         """Match a team-vs-team stream."""
         # Determine if single-league or multi-league matching
         if len(self._search_leagues) == 1:
+            league = self._search_leagues[0]
             return self._team_matcher.match_single_league(
                 classified=classified,
-                league=self._search_leagues[0],
+                league=league,
                 target_date=target_date,
                 group_id=self._group_id,
                 stream_id=stream_id,

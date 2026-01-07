@@ -89,11 +89,19 @@ class SportsDataService:
         """Register a provider."""
         self._providers.append(provider)
 
-    def get_events(self, league: str, target_date: date) -> list[Event]:
+    def get_events(
+        self, league: str, target_date: date, cache_only: bool = False
+    ) -> list[Event]:
         """Get all events for a league on a given date.
 
-        Iterates through registered providers until one returns events.
-        Provider selection is handled by the registry (cricket_hybrid for cricket, etc.)
+        Args:
+            league: League code
+            target_date: Date to get events for
+            cache_only: If True, only return cached events (no API calls).
+                       Use for older dates where we don't want to fetch.
+
+        Returns:
+            List of events (may be empty if cache_only and not cached)
         """
         cache_key = make_cache_key("events", league, target_date.isoformat())
 
@@ -105,6 +113,10 @@ class SportsDataService:
                 return [dict_to_event(e) for e in cached]
             except (KeyError, TypeError) as e:
                 logger.warning(f"Cache deserialization failed: {e}")
+
+        # If cache_only, don't fetch from API
+        if cache_only:
+            return []
 
         # Iterate through providers
         for provider in self._providers:
@@ -218,6 +230,16 @@ class SportsDataService:
         return None
 
     # Cache management
+
+    def get_provider_name(self, league: str) -> str | None:
+        """Get the provider name that handles a league.
+
+        Returns provider name (e.g., 'espn', 'tsdb') or None if no provider.
+        """
+        for provider in self._providers:
+            if provider.supports_league(league):
+                return provider.name
+        return None
 
     def cache_stats(self) -> dict:
         """Get cache statistics."""
