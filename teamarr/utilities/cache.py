@@ -163,11 +163,20 @@ class TTLCache:
             }
 
 
+# Module-level lock for PersistentTTLCache SQLite access
+# All instances share this lock to prevent "database is locked" errors
+# when multiple SportsDataService instances exist (each with their own cache)
+_persistent_cache_lock = threading.Lock()
+
+
 class PersistentTTLCache:
     """SQLite-backed cache with TTL support.
 
     Same interface as TTLCache but persists to SQLite.
     Survives application restarts while respecting TTL expiration.
+
+    Note: Uses a module-level lock (not instance lock) because multiple
+    cache instances may exist but all share the same SQLite database.
 
     Usage:
         cache = PersistentTTLCache(default_ttl_seconds=3600)
@@ -177,7 +186,6 @@ class PersistentTTLCache:
 
     def __init__(self, default_ttl_seconds: int = 3600):
         self._default_ttl = timedelta(seconds=default_ttl_seconds)
-        self._lock = threading.Lock()
         self._hits = 0
         self._misses = 0
 
@@ -185,7 +193,7 @@ class PersistentTTLCache:
         """Get value if exists and not expired."""
         from teamarr.database.connection import get_db
 
-        with self._lock:
+        with _persistent_cache_lock:
             now = datetime.now()
             with get_db() as conn:
                 row = conn.execute(
@@ -229,7 +237,7 @@ class PersistentTTLCache:
             logger.warning(f"Failed to serialize value for key {key}: {e}")
             return
 
-        with self._lock:
+        with _persistent_cache_lock:
             with get_db() as conn:
                 conn.execute(
                     """
@@ -249,14 +257,14 @@ class PersistentTTLCache:
 
     def delete(self, key: str) -> None:
         """Delete a key from cache."""
-        with self._lock:
+        with _persistent_cache_lock:
             self._delete_key(key)
 
     def clear(self) -> None:
         """Clear all cached values."""
         from teamarr.database.connection import get_db
 
-        with self._lock:
+        with _persistent_cache_lock:
             with get_db() as conn:
                 conn.execute("DELETE FROM service_cache")
             self._hits = 0
@@ -267,7 +275,7 @@ class PersistentTTLCache:
         from teamarr.database.connection import get_db
 
         now = datetime.now().isoformat()
-        with self._lock:
+        with _persistent_cache_lock:
             with get_db() as conn:
                 cursor = conn.execute(
                     "DELETE FROM service_cache WHERE expires_at < ?", (now,)
@@ -288,7 +296,7 @@ class PersistentTTLCache:
         from teamarr.database.connection import get_db
 
         now = datetime.now().isoformat()
-        with self._lock:
+        with _persistent_cache_lock:
             with get_db() as conn:
                 total_row = conn.execute(
                     "SELECT COUNT(*) as cnt FROM service_cache"
