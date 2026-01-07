@@ -236,6 +236,23 @@ class ChannelLifecycleService:
                         stream_name, conn
                     )
 
+                    # V1 Parity: If behavior is 'ignore', skip stream entirely
+                    # This must happen BEFORE any channel lookup/creation
+                    if keyword_behavior == "ignore":
+                        logger.debug(
+                            f"Skipping stream '{stream_name}': "
+                            f"keyword '{matched_keyword}' set to ignore"
+                        )
+                        result.skipped.append(
+                            {
+                                "stream": stream_name,
+                                "stream_id": stream_id,
+                                "event_id": event_id,
+                                "reason": f"Exception keyword '{matched_keyword}' set to ignore",
+                            }
+                        )
+                        continue
+
                     # Determine effective duplicate mode
                     effective_mode = keyword_behavior if keyword_behavior else duplicate_mode
 
