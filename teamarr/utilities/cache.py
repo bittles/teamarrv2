@@ -341,7 +341,7 @@ def get_events_cache_ttl(target_date) -> int:
 
     Tiered caching - past events are final (long TTL), today needs fresh data.
 
-    Past:       180 days (final scores don't change)
+    Past:       30 days (final scores don't change)
     Today:      30 minutes (flex times, live scores)
     Tomorrow:   4 hours (flex scheduling possible)
     Days 2-7:   8 hours (mostly stable)
@@ -353,7 +353,7 @@ def get_events_cache_ttl(target_date) -> int:
     days_from_today = (target_date - today).days
 
     if days_from_today < 0:  # Past
-        return 180 * 24 * 60 * 60  # 180 days
+        return 30 * 24 * 60 * 60  # 30 days
     elif days_from_today == 0:  # Today
         return 30 * 60  # 30 minutes
     elif days_from_today == 1:  # Tomorrow
