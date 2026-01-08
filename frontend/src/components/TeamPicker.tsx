@@ -90,7 +90,7 @@ export function TeamPicker({
   // Check if team is selected
   const isTeamSelected = (team: CachedTeam) => {
     return selectedTeams.some(
-      (t) => t.provider === team.provider && t.team_id === team.provider_team_id
+      (t) => t.provider === team.provider && t.team_id === team.provider_team_id && t.league === team.league
     )
   }
 
@@ -100,7 +100,7 @@ export function TeamPicker({
     if (isSelected) {
       onSelectionChange(
         selectedTeams.filter(
-          (t) => !(t.provider === team.provider && t.team_id === team.provider_team_id)
+          (t) => !(t.provider === team.provider && t.team_id === team.provider_team_id && t.league === team.league)
         )
       )
     } else {
@@ -120,7 +120,7 @@ export function TeamPicker({
   const removeTeam = (team: TeamFilterEntry) => {
     onSelectionChange(
       selectedTeams.filter(
-        (t) => !(t.provider === team.provider && t.team_id === team.team_id)
+        (t) => !(t.provider === team.provider && t.team_id === team.team_id && t.league === team.league)
       )
     )
   }
