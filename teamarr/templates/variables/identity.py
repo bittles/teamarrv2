@@ -40,10 +40,11 @@ def extract_team_name(ctx: TemplateContext, game_ctx: GameContext | None) -> str
     name="team_abbrev",
     category=Category.IDENTITY,
     suffix_rules=SuffixRules.BASE_ONLY,
-    description="Team abbreviation (e.g., 'DET')",
+    description="Team abbreviation uppercase (e.g., 'DET')",
 )
 def extract_team_abbrev(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
-    return ctx.team_config.team_abbrev or ""
+    abbrev = ctx.team_config.team_abbrev or ""
+    return abbrev.upper()
 
 
 @register_variable(
@@ -82,11 +83,11 @@ def extract_opponent(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     name="opponent_abbrev",
     category=Category.IDENTITY,
     suffix_rules=SuffixRules.ALL,
-    description="Opponent team abbreviation",
+    description="Opponent team abbreviation uppercase",
 )
 def extract_opponent_abbrev(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     opponent = _get_opponent(ctx, game_ctx)
-    return opponent.abbreviation if opponent else ""
+    return opponent.abbreviation.upper() if opponent else ""
 
 
 @register_variable(
@@ -117,13 +118,13 @@ def extract_matchup(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     name="matchup_abbrev",
     category=Category.IDENTITY,
     suffix_rules=SuffixRules.ALL,
-    description="Abbreviated matchup (e.g., 'TB @ DET')",
+    description="Abbreviated matchup uppercase (e.g., 'TB @ DET')",
 )
 def extract_matchup_abbrev(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     if not game_ctx or not game_ctx.event:
         return ""
     event = game_ctx.event
-    return f"{event.away_team.abbreviation} @ {event.home_team.abbreviation}"
+    return f"{event.away_team.abbreviation.upper()} @ {event.home_team.abbreviation.upper()}"
 
 
 @register_variable(

@@ -212,8 +212,8 @@ def extract_event_result_abbrev(ctx: TemplateContext, game_ctx: GameContext | No
     # Check if game is final
     if event.status.state not in ("final", "post"):
         return ""
-    home_abbrev = event.home_team.abbreviation if event.home_team else ""
-    away_abbrev = event.away_team.abbreviation if event.away_team else ""
+    home_abbrev = event.home_team.abbreviation.upper() if event.home_team else ""
+    away_abbrev = event.away_team.abbreviation.upper() if event.away_team else ""
     return f"{home_abbrev} {event.home_score} - {away_abbrev} {event.away_score}"
 
 
@@ -242,7 +242,7 @@ def extract_winner(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     name="winner_abbrev",
     category=Category.SCORES,
     suffix_rules=SuffixRules.ALL,
-    description="Winning team abbreviation. Empty if not final or tie.",
+    description="Winning team abbreviation uppercase. Empty if not final or tie.",
 )
 def extract_winner_abbrev(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     if not game_ctx or not game_ctx.event:
@@ -253,9 +253,9 @@ def extract_winner_abbrev(ctx: TemplateContext, game_ctx: GameContext | None) ->
     if event.status.state not in ("final", "post"):
         return ""
     if event.home_score > event.away_score:
-        return event.home_team.abbreviation if event.home_team else ""
+        return event.home_team.abbreviation.upper() if event.home_team else ""
     elif event.away_score > event.home_score:
-        return event.away_team.abbreviation if event.away_team else ""
+        return event.away_team.abbreviation.upper() if event.away_team else ""
     return ""
 
 
@@ -284,7 +284,7 @@ def extract_loser(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     name="loser_abbrev",
     category=Category.SCORES,
     suffix_rules=SuffixRules.ALL,
-    description="Losing team abbreviation. Empty if not final or tie.",
+    description="Losing team abbreviation uppercase. Empty if not final or tie.",
 )
 def extract_loser_abbrev(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
     if not game_ctx or not game_ctx.event:
@@ -295,7 +295,7 @@ def extract_loser_abbrev(ctx: TemplateContext, game_ctx: GameContext | None) -> 
     if event.status.state not in ("final", "post"):
         return ""
     if event.home_score < event.away_score:
-        return event.home_team.abbreviation if event.home_team else ""
+        return event.home_team.abbreviation.upper() if event.home_team else ""
     elif event.away_score < event.home_score:
-        return event.away_team.abbreviation if event.away_team else ""
+        return event.away_team.abbreviation.upper() if event.away_team else ""
     return ""
