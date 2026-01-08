@@ -27,7 +27,8 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
     path = Path(db_path) if db_path else DEFAULT_DB_PATH
 
     # timeout=30: Wait up to 30 seconds if database is locked by another connection
-    conn = sqlite3.connect(path, timeout=30.0)
+    # check_same_thread=False: Allow connection to be used across threads (required for FastAPI)
+    conn = sqlite3.connect(path, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
 
     # Enable Write-Ahead Logging for better concurrent access
