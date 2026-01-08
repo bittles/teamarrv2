@@ -237,6 +237,7 @@ def update_duration_settings(conn: Connection, **kwargs) -> bool:
         "golf": "duration_golf",
         "racing": "duration_racing",
         "cricket": "duration_cricket",
+        "volleyball": "duration_volleyball",
     }
 
     updates = []

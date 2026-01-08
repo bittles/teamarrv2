@@ -103,6 +103,7 @@ def create_lifecycle_service(
         "golf": durations.golf,
         "racing": durations.racing,
         "cricket": durations.cricket,
+        "volleyball": durations.volleyball,
     }
 
     channel_manager = None

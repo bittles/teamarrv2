@@ -50,6 +50,7 @@ export interface DurationSettings {
   golf: number
   racing: number
   cricket: number
+  volleyball: number
 }
 
 export interface ReconciliationSettings {

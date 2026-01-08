@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS settings (
     duration_golf REAL DEFAULT 6.0,
     duration_racing REAL DEFAULT 3.0,
     duration_cricket REAL DEFAULT 4.0,  -- T20 matches ~3-4 hours
+    duration_volleyball REAL DEFAULT 2.5,
 
     -- XMLTV
     xmltv_generator_name TEXT DEFAULT 'Teamarr v2',

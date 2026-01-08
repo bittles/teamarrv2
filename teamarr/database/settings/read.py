@@ -107,6 +107,7 @@ def get_all_settings(conn: Connection) -> AllSettings:
             golf=row["duration_golf"] or 6.0,
             racing=row["duration_racing"] or 3.0,
             cricket=row["duration_cricket"] or 4.0,
+            volleyball=row["duration_volleyball"] or 2.5,
         ),
         display=_build_display_settings(row),
         api=APISettings(

@@ -81,6 +81,7 @@ class DurationSettings:
     golf: float = 6.0
     racing: float = 3.0
     cricket: float = 4.0
+    volleyball: float = 2.5
 
 
 @dataclass
