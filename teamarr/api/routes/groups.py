@@ -284,6 +284,7 @@ def list_groups(
 ):
     """List all event EPG groups."""
     from teamarr.database.groups import get_all_group_stats, get_all_groups
+    from teamarr.dispatcharr import get_dispatcharr_connection
 
     with get_db() as conn:
         groups = get_all_groups(conn, include_disabled=include_disabled)
@@ -291,6 +292,24 @@ def list_groups(
         stats = {}
         if include_stats:
             stats = get_all_group_stats(conn)
+
+    # Fetch fresh M3U account names from Dispatcharr
+    m3u_account_names: dict[int, str] = {}
+    account_ids = {g.m3u_account_id for g in groups if g.m3u_account_id}
+    if account_ids:
+        try:
+            dispatcharr = get_dispatcharr_connection(get_db)
+            if dispatcharr:
+                accounts = dispatcharr.m3u.list_accounts()
+                m3u_account_names = {a.id: a.name for a in accounts}
+        except Exception:
+            pass  # Fall back to stored names if Dispatcharr unavailable
+
+    def get_account_name(g):
+        """Get fresh M3U account name, falling back to stored name."""
+        if g.m3u_account_id and g.m3u_account_id in m3u_account_names:
+            return m3u_account_names[g.m3u_account_id]
+        return g.m3u_account_name
 
     return GroupListResponse(
         groups=[
@@ -313,7 +332,7 @@ def list_groups(
                 m3u_group_id=g.m3u_group_id,
                 m3u_group_name=g.m3u_group_name,
                 m3u_account_id=g.m3u_account_id,
-                m3u_account_name=g.m3u_account_name,
+                m3u_account_name=get_account_name(g),
                 stream_include_regex=g.stream_include_regex,
                 stream_include_regex_enabled=g.stream_include_regex_enabled,
                 stream_exclude_regex=g.stream_exclude_regex,
@@ -475,6 +494,7 @@ def create_group(request: GroupCreate):
 def get_group_by_id(group_id: int):
     """Get a single event EPG group."""
     from teamarr.database.groups import get_group, get_group_channel_count
+    from teamarr.dispatcharr import get_dispatcharr_connection
 
     with get_db() as conn:
         group = get_group(conn, group_id)
@@ -485,6 +505,20 @@ def get_group_by_id(group_id: int):
             )
 
         channel_count = get_group_channel_count(conn, group_id)
+
+    # Fetch fresh M3U account name from Dispatcharr
+    m3u_account_name = group.m3u_account_name
+    if group.m3u_account_id:
+        try:
+            dispatcharr = get_dispatcharr_connection(get_db)
+            if dispatcharr:
+                accounts = dispatcharr.m3u.list_accounts()
+                for a in accounts:
+                    if a.id == group.m3u_account_id:
+                        m3u_account_name = a.name
+                        break
+        except Exception:
+            pass  # Fall back to stored name if Dispatcharr unavailable
 
     return GroupResponse(
         id=group.id,
@@ -505,7 +539,7 @@ def get_group_by_id(group_id: int):
         m3u_group_id=group.m3u_group_id,
         m3u_group_name=group.m3u_group_name,
         m3u_account_id=group.m3u_account_id,
-        m3u_account_name=group.m3u_account_name,
+        m3u_account_name=m3u_account_name,
         stream_include_regex=group.stream_include_regex,
         stream_include_regex_enabled=group.stream_include_regex_enabled,
         stream_exclude_regex=group.stream_exclude_regex,
