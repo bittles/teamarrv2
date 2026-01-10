@@ -484,6 +484,42 @@ class TSDBClient:
             self._cache.set(cache_key, result, TSDB_CACHE_TTL_NEXT_EVENTS)
         return result
 
+    def get_events_by_round(
+        self, league: str, round_num: int = 1, season: str | None = None
+    ) -> dict | None:
+        """Fetch events for a specific round of a league season.
+
+        Uses eventsround.php with league ID. This works for leagues where
+        eventsday.php and eventsnextleague.php don't return data (e.g., Unrivaled).
+
+        Args:
+            league: Canonical league code
+            round_num: Round number (default 1 for all events in some leagues)
+            season: Season year (e.g., "2026"). Auto-detected if not provided.
+
+        Returns:
+            Raw TSDB response with {"events": [...]} or None
+        """
+        league_id = self.get_league_id(league)
+        if not league_id:
+            return None
+
+        if not season:
+            # Use current year for calendar-year leagues
+            season = str(date.today().year)
+
+        cache_key = make_cache_key("tsdb", "eventsround", league, round_num, season)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            logger.debug(f"TSDB cache hit: {cache_key}")
+            return cached
+
+        result = self._request("eventsround.php", {"id": league_id, "r": round_num, "s": season})
+        if result:
+            # Cache for 2 hours (same as eventsday)
+            self._cache.set(cache_key, result, 2 * 60 * 60)
+        return result
+
     def get_team_next_events(self, team_id: str) -> dict | None:
         """Fetch upcoming events for a team.
 

@@ -69,8 +69,10 @@ class TSDBProvider(SportsProvider):
     def get_events(self, league: str, target_date: date) -> list[Event]:
         """Get events for a league on a specific date.
 
-        Tries eventsday.php first, falls back to eventsnextleague.php
-        filtered by date (some leagues don't populate eventsday).
+        Tries multiple endpoints in order:
+        1. eventsday.php - Date-specific (works for most leagues)
+        2. eventsnextleague.php - Upcoming events filtered by date
+        3. eventsround.php - Full season events filtered by date (Unrivaled, etc.)
         """
         date_str = target_date.strftime("%Y-%m-%d")
 
@@ -86,20 +88,35 @@ class TSDBProvider(SportsProvider):
 
         # Fall back to next league events, filter by date
         data = self._client.get_league_next_events(league)
-        if not data or not data.get("events"):
-            return []
+        if data and data.get("events"):
+            events = []
+            for event_data in data["events"]:
+                # Filter to target date
+                event_date = event_data.get("dateEvent")
+                if event_date != date_str:
+                    continue
+                event = self._parse_event(event_data, league)
+                if event:
+                    events.append(event)
+            if events:
+                return events
 
-        events = []
-        for event_data in data["events"]:
-            # Filter to target date
-            event_date = event_data.get("dateEvent")
-            if event_date != date_str:
-                continue
-            event = self._parse_event(event_data, league)
-            if event:
-                events.append(event)
+        # Final fallback: eventsround.php with round=1 (full season for some leagues)
+        # Works for leagues like Unrivaled where other endpoints return empty
+        data = self._client.get_events_by_round(league)
+        if data and data.get("events"):
+            events = []
+            for event_data in data["events"]:
+                # Filter to target date
+                event_date = event_data.get("dateEvent")
+                if event_date != date_str:
+                    continue
+                event = self._parse_event(event_data, league)
+                if event:
+                    events.append(event)
+            return events
 
-        return events
+        return []
 
     # TSDB rate limit optimization: cap at 14 days regardless of caller request
     # ESPN can handle 30+ days, but TSDB's 25 req/min limit makes that expensive
@@ -166,21 +183,35 @@ class TSDBProvider(SportsProvider):
     ) -> list[Event]:
         """Get events for a team on a specific date.
 
-        Service layer handles caching - provider is pure fetch.
+        Uses eventsday first, then eventsround as fallback for leagues
+        where eventsday doesn't return data (e.g., Unrivaled).
         """
         date_str = target_date.strftime("%Y-%m-%d")
+
+        # Try date-specific endpoint first
         data = self._client.get_events_by_date(league, date_str)
-        if not data or not data.get("events"):
-            return []
+        if data and data.get("events"):
+            team_events = []
+            for event_data in data["events"]:
+                event = self._parse_event(event_data, league)
+                if event and self._team_in_event(team_name, event):
+                    team_events.append(event)
+            return team_events
 
-        # Parse and filter for this team
-        team_events = []
-        for event_data in data["events"]:
-            event = self._parse_event(event_data, league)
-            if event and self._team_in_event(team_name, event):
-                team_events.append(event)
+        # Fallback: eventsround for leagues like Unrivaled
+        data = self._client.get_events_by_round(league)
+        if data and data.get("events"):
+            team_events = []
+            for event_data in data["events"]:
+                # Filter by date and team
+                if event_data.get("dateEvent") != date_str:
+                    continue
+                event = self._parse_event(event_data, league)
+                if event and self._team_in_event(team_name, event):
+                    team_events.append(event)
+            return team_events
 
-        return team_events
+        return []
 
     def _team_in_event(self, team_name: str, event: Event) -> bool:
         """Check if team is playing in this event."""

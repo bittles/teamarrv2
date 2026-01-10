@@ -551,6 +551,9 @@ INSERT OR REPLACE INTO leagues (league_code, provider, provider_league_id, provi
     ('mens-college-basketball', 'espn', 'basketball/mens-college-basketball', NULL, 'NCAA Men''s Basketball', 'Basketball', 'https://www.ncaa.com/modules/custom/casablanca_core/img/sportbanners/basketball.png', NULL, 1, 'NCAAM', 'ncaam', 'team_vs_team', 'College Basketball', NULL, NULL),
     ('womens-college-basketball', 'espn', 'basketball/womens-college-basketball', NULL, 'NCAA Women''s Basketball', 'Basketball', 'https://www.ncaa.com/modules/custom/casablanca_core/img/sportbanners/basketball.png', NULL, 1, 'NCAAW', 'ncaaw', 'team_vs_team', 'Women''s College Basketball', NULL, NULL),
 
+    -- Basketball (TSDB) - Leagues not on ESPN
+    ('unrivaled', 'tsdb', '5622', 'Unrivaled Basketball', 'Unrivaled', 'Basketball', 'https://r2.thesportsdb.com/images/media/league/badge/71mier1746291561.png', NULL, 1, NULL, 'unrivaled', 'team_vs_team', 'Unrivaled Basketball', NULL, NULL),
+
     -- Hockey (ESPN)
     ('nhl', 'espn', 'hockey/nhl', NULL, 'NHL', 'Hockey', 'https://a.espncdn.com/i/teamlogos/leagues/500/nhl.png', NULL, 1, NULL, 'nhl', 'team_vs_team', 'NHL Hockey', NULL, NULL),
     ('mens-college-hockey', 'espn', 'hockey/mens-college-hockey', NULL, 'NCAA Men''s Ice Hockey', 'Hockey', 'https://www.ncaa.com/modules/custom/casablanca_core/img/sportbanners/icehockey.png', NULL, 1, 'NCAA Hockey', 'ncaah', 'team_vs_team', 'College Hockey', NULL, NULL),
