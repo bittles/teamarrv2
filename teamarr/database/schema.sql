@@ -1208,6 +1208,10 @@ CREATE TABLE IF NOT EXISTS epg_matched_streams (
     away_team TEXT,
     from_cache BOOLEAN DEFAULT 0,
 
+    -- Exclusion info (matched but not included due to league filter etc)
+    excluded BOOLEAN DEFAULT 0,
+    exclusion_reason TEXT,  -- e.g. 'excluded_league', 'wrong_date'
+
     -- Enhanced matching info (Phase 7)
     match_method TEXT,  -- 'cache', 'user_corrected', 'alias', 'pattern', 'fuzzy', 'keyword', 'direct'
     confidence REAL,    -- Match confidence score 0.0-1.0

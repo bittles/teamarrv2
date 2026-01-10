@@ -548,8 +548,20 @@ class EventGroupProcessor:
                         return cb
                     stream_cb = make_stream_cb(group.name, processed_count + 1)
 
+                # Create status callback for post-matching phases
+                status_cb = None
+                if progress_callback:
+                    grp_idx = processed_count + 1
+                    def make_status_cb(grp_name: str, idx: int):
+                        def cb(msg: str):
+                            progress_callback(idx, total_groups, f"{grp_name}: {msg}")
+                        return cb
+                    status_cb = make_status_cb(group.name, grp_idx)
+
                 result = self._process_group_internal(
-                    conn, group, target_date, stream_progress_callback=stream_cb
+                    conn, group, target_date,
+                    stream_progress_callback=stream_cb,
+                    status_callback=status_cb,
                 )
                 batch_result.results.append(result)
                 processed_group_ids.append(group.id)
@@ -609,8 +621,20 @@ class EventGroupProcessor:
                         return cb
                     stream_cb = make_stream_cb(group.name, processed_count + 1)
 
+                # Create status callback for post-matching phases
+                status_cb = None
+                if progress_callback:
+                    grp_idx = processed_count + 1
+                    def make_status_cb(grp_name: str, idx: int):
+                        def cb(msg: str):
+                            progress_callback(idx, total_groups, f"{grp_name}: {msg}")
+                        return cb
+                    status_cb = make_status_cb(group.name, grp_idx)
+
                 result = self._process_group_internal(
-                    conn, group, target_date, stream_progress_callback=stream_cb
+                    conn, group, target_date,
+                    stream_progress_callback=stream_cb,
+                    status_callback=status_cb,
                 )
                 batch_result.results.append(result)
                 processed_group_ids.append(group.id)
@@ -966,6 +990,7 @@ class EventGroupProcessor:
         group: EventEPGGroup,
         target_date: date,
         stream_progress_callback: Callable | None = None,
+        status_callback: Callable[[str], None] | None = None,
     ) -> ProcessingResult:
         """Internal processing for a single group.
 
@@ -974,6 +999,7 @@ class EventGroupProcessor:
             group: Event group to process
             target_date: Target date for matching
             stream_progress_callback: Optional callback(current, total, stream_name, matched)
+            status_callback: Optional callback(status_message) for phase updates
         """
         result = ProcessingResult(group_id=group.id, group_name=group.name)
 
@@ -1093,6 +1119,8 @@ class EventGroupProcessor:
             current_streams = {s.get("id"): s for s in streams if s.get("id")}
 
             if matched_streams:
+                if status_callback:
+                    status_callback(f"Processing {len(matched_streams)} channels...")
                 lifecycle_result = self._process_channels(
                     matched_streams, group, conn, current_streams=current_streams
                 )
@@ -1136,6 +1164,8 @@ class EventGroupProcessor:
                     if ms.get("event") and ms["event"].id not in excluded_event_ids
                 ]
 
+                if status_callback:
+                    status_callback(f"Generating EPG for {len(xmltv_streams)} events...")
                 xmltv_content, programmes_total, event_programmes, pregame, postgame = (
                     self._generate_xmltv(xmltv_streams, group, conn)
                 )
@@ -1739,18 +1769,32 @@ class EventGroupProcessor:
                     )
                 )
             elif result.matched and not result.included:
-                # Matched but excluded (wrong league)
-                failed_list.append(
-                    FailedMatch(
+                # Matched but excluded (wrong league) - still counts as a match
+                event_date = None
+                if result.event and result.event.start_time:
+                    event_date = result.event.start_time.strftime("%Y-%m-%d %H:%M")
+                match_method = getattr(result, "match_method", None)
+                confidence = getattr(result, "confidence", None)
+
+                matched_list.append(
+                    MatchedStream(
                         run_id=run_id,
                         group_id=group_id,
                         group_name=group_name,
                         stream_id=stream_id,
                         stream_name=result.stream_name,
-                        reason="excluded_league",
-                        exclusion_reason=result.exclusion_reason,
-                        detail=f"League: {result.league}",
+                        event_id=result.event.id if result.event else "",
+                        event_name=result.event.name if result.event else None,
+                        event_date=event_date,
                         detected_league=result.league,
+                        home_team=result.event.home_team.name if result.event and result.event.home_team else None,
+                        away_team=result.event.away_team.name if result.event and result.event.away_team else None,
+                        from_cache=getattr(result, "from_cache", False),
+                        excluded=True,
+                        exclusion_reason=result.exclusion_reason or "excluded_league",
+                        match_method=match_method,
+                        confidence=confidence,
+                        origin_match_method=getattr(result, "origin_match_method", None),
                     )
                 )
             elif result.is_exception:

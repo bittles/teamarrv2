@@ -537,6 +537,9 @@ class MatchedStream:
     home_team: str | None
     away_team: str | None
     from_cache: bool = False
+    # Exclusion info (matched but not included due to league filter etc)
+    excluded: bool = False
+    exclusion_reason: str | None = None  # e.g. 'excluded_league', 'wrong_date'
     # Enhanced matching info (Phase 7)
     match_method: str | None = None  # cache, user_corrected, alias, pattern, fuzzy, keyword
     confidence: float | None = None  # Match confidence 0.0-1.0
@@ -574,8 +577,9 @@ def save_matched_streams(conn: Connection, streams: list[MatchedStream]) -> int:
         INSERT INTO epg_matched_streams (
             run_id, group_id, group_name, stream_id, stream_name,
             event_id, event_name, event_date, detected_league,
-            home_team, away_team, from_cache, match_method, confidence, origin_match_method
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            home_team, away_team, from_cache, excluded, exclusion_reason,
+            match_method, confidence, origin_match_method
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -591,6 +595,8 @@ def save_matched_streams(conn: Connection, streams: list[MatchedStream]) -> int:
                 s.home_team,
                 s.away_team,
                 1 if s.from_cache else 0,
+                1 if s.excluded else 0,
+                s.exclusion_reason,
                 s.match_method,
                 s.confidence,
                 s.origin_match_method,
@@ -681,16 +687,16 @@ def get_matched_streams(
         # Alias detected_league as league for frontend compatibility
         query = f"""SELECT id, run_id, group_id, group_name, stream_id, stream_name,
                     event_id, event_name, event_date, home_team, away_team,
-                    detected_league AS league, from_cache, match_method, confidence,
-                    origin_match_method, created_at
+                    detected_league AS league, from_cache, excluded, exclusion_reason,
+                    match_method, confidence, origin_match_method, created_at
                     FROM epg_matched_streams WHERE run_id IN ({placeholders})"""
         params: list = run_ids
     else:
         # Alias detected_league as league for frontend compatibility
         query = """SELECT id, run_id, group_id, group_name, stream_id, stream_name,
                    event_id, event_name, event_date, home_team, away_team,
-                   detected_league AS league, from_cache, match_method, confidence,
-                   origin_match_method, created_at
+                   detected_league AS league, from_cache, excluded, exclusion_reason,
+                   match_method, confidence, origin_match_method, created_at
                    FROM epg_matched_streams WHERE run_id = ?"""
         params = [run_id]
 
@@ -702,8 +708,15 @@ def get_matched_streams(
     params.append(limit)
 
     rows = conn.execute(query, params).fetchall()
-    # Convert from_cache from SQLite integer (0/1) to boolean
-    return [{**dict(row), "from_cache": bool(row["from_cache"])} for row in rows]
+    # Convert from_cache and excluded from SQLite integer (0/1) to boolean
+    return [
+        {
+            **dict(row),
+            "from_cache": bool(row["from_cache"]),
+            "excluded": bool(row["excluded"]) if row["excluded"] is not None else False,
+        }
+        for row in rows
+    ]
 
 
 def get_failed_matches(
