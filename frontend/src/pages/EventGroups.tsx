@@ -50,7 +50,8 @@ import {
   useUpdateGroup,
 } from "@/hooks/useGroups"
 import { useTemplates } from "@/hooks/useTemplates"
-import type { EventGroup, PreviewGroupResponse } from "@/api/types"
+import type { EventGroup, PreviewGroupResponse, TeamFilterEntry } from "@/api/types"
+import { TeamPicker } from "@/components/TeamPicker"
 
 // Fetch leagues for logo lookup, sport mapping, and display alias
 async function fetchLeagues(): Promise<{ slug: string; name: string; logo_url: string | null; sport: string | null; league_alias: string | null }[]> {
@@ -229,23 +230,28 @@ export function EventGroups() {
   const [showAliasModal, setShowAliasModal] = useState(false)
   const [aliasForm, setAliasForm] = useState({ alias: "", league: "", team_id: "", team_name: "" })
   const [aliasSport, setAliasSport] = useState("")
-  const [aliasLeagueTeams, setAliasLeagueTeams] = useState<CachedTeam[]>([])
-  const [aliasLoading, setAliasLoading] = useState(false)
+  const [aliasSelectedTeams, setAliasSelectedTeams] = useState<TeamFilterEntry[]>([])
   const [aliasSubmitting, setAliasSubmitting] = useState(false)
   const [aliasDeleting, setAliasDeleting] = useState<number | null>(null)
 
-  // Get unique sports from cached leagues for alias modal
+  // Normalize sport name to title case
+  const normalizeSport = (sport: string | null) => {
+    if (!sport) return ""
+    return sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase()
+  }
+
+  // Get unique sports from cached leagues for alias modal (normalized to title case)
   const aliasSports = useMemo(() => {
     if (!cachedLeagues) return []
-    const sportSet = new Set(cachedLeagues.map((l) => l.sport))
-    return [...sportSet].sort()
+    const sportSet = new Set(cachedLeagues.map((l) => normalizeSport(l.sport)))
+    return [...sportSet].filter(Boolean).sort()
   }, [cachedLeagues])
 
-  // Filter leagues by selected sport for alias modal
+  // Filter leagues by selected sport for alias modal (case-insensitive)
   const aliasFilteredLeagues = useMemo(() => {
     if (!aliasSport || !cachedLeagues) return []
     return cachedLeagues
-      .filter((l) => l.sport === aliasSport)
+      .filter((l) => normalizeSport(l.sport) === aliasSport)
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [cachedLeagues, aliasSport])
 
@@ -253,30 +259,23 @@ export function EventGroups() {
   const handleAliasSportChange = (sport: string) => {
     setAliasSport(sport)
     setAliasForm({ ...aliasForm, league: "", team_id: "", team_name: "" })
-    setAliasLeagueTeams([])
+    setAliasSelectedTeams([])
   }
 
-  // Load teams when alias league changes
-  const handleAliasLeagueChange = async (league: string) => {
+  // Handle league change in alias modal
+  const handleAliasLeagueChange = (league: string) => {
     setAliasForm({ ...aliasForm, league, team_id: "", team_name: "" })
-    setAliasLeagueTeams([])
-    if (!league) return
-
-    setAliasLoading(true)
-    try {
-      const teams = await fetchTeamsByLeague(league)
-      setAliasLeagueTeams(teams)
-    } catch {
-      toast.error("Failed to load teams")
-    } finally {
-      setAliasLoading(false)
-    }
+    setAliasSelectedTeams([])
   }
 
-  const handleAliasTeamChange = (teamId: string) => {
-    const team = aliasLeagueTeams.find((t) => t.id === teamId)
+  // Handle team selection from TeamPicker
+  const handleAliasTeamSelect = (teams: TeamFilterEntry[]) => {
+    setAliasSelectedTeams(teams)
+    const team = teams[0]
     if (team) {
-      setAliasForm({ ...aliasForm, team_id: team.id, team_name: team.name })
+      setAliasForm({ ...aliasForm, team_id: team.team_id, team_name: team.name || "" })
+    } else {
+      setAliasForm({ ...aliasForm, team_id: "", team_name: "" })
     }
   }
 
@@ -298,7 +297,7 @@ export function EventGroups() {
       setShowAliasModal(false)
       setAliasForm({ alias: "", league: "", team_id: "", team_name: "" })
       setAliasSport("")
-      setAliasLeagueTeams([])
+      setAliasSelectedTeams([])
       refetchAliases()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create alias")
@@ -1413,7 +1412,7 @@ export function EventGroups() {
             className="h-5 px-1.5 text-xs ml-auto"
             onClick={() => {
               setAliasForm({ alias: "", league: "", team_id: "", team_name: "" })
-              setAliasLeagueTeams([])
+              setAliasSelectedTeams([])
               setShowAliasModal(true)
             }}
           >
@@ -1477,7 +1476,7 @@ export function EventGroups() {
         if (!open) {
           setAliasForm({ alias: "", league: "", team_id: "", team_name: "" })
           setAliasSport("")
-          setAliasLeagueTeams([])
+          setAliasSelectedTeams([])
         }
       }}>
         <DialogContent onClose={() => setShowAliasModal(false)}>
@@ -1536,26 +1535,13 @@ export function EventGroups() {
               {!aliasForm.league ? (
                 <p className="text-sm text-muted-foreground py-2">Select a league first</p>
               ) : (
-                <Select
-                  value={aliasForm.team_id}
-                  onChange={(e) => handleAliasTeamChange(e.target.value)}
-                  disabled={aliasLoading}
-                >
-                  {aliasLoading ? (
-                    <option value="">Loading teams...</option>
-                  ) : aliasLeagueTeams.length === 0 ? (
-                    <option value="">No teams found</option>
-                  ) : (
-                    <>
-                      <option value="">Select team...</option>
-                      {aliasLeagueTeams.map((team) => (
-                        <option key={team.id} value={team.id}>
-                          {team.name}
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </Select>
+                <TeamPicker
+                  leagues={[aliasForm.league]}
+                  selectedTeams={aliasSelectedTeams}
+                  onSelectionChange={handleAliasTeamSelect}
+                  placeholder="Search teams..."
+                  singleSelect
+                />
               )}
               <p className="text-xs text-muted-foreground">
                 The actual team this alias should map to
