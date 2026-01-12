@@ -975,9 +975,16 @@ export function EventGroups() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowBulkEdit(true)}
+                  onClick={() => {
+                    if (selectedIds.size === 1) {
+                      const groupId = Array.from(selectedIds)[0]
+                      navigate(`/event-groups/${groupId}`)
+                    } else {
+                      setShowBulkEdit(true)
+                    }
+                  }}
                   disabled={hasMixedModes}
-                  title={hasMixedModes ? "Cannot edit groups with different modes (single/multi)" : "Edit selected groups"}
+                  title={hasMixedModes ? "Cannot edit groups with different modes (single/multi)" : selectedIds.size === 1 ? "Edit group" : "Edit selected groups"}
                 >
                   <Pencil className="h-3 w-3 mr-1" />
                   Edit
