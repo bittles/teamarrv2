@@ -289,10 +289,16 @@ class CronScheduler:
                 item_name=item_name,
             )
 
+        # Get fresh Dispatcharr connection from factory
+        # (stored reference may be stale if settings were updated)
+        from teamarr.dispatcharr import get_dispatcharr_connection
+
+        dispatcharr_client = get_dispatcharr_connection(self._db_factory)
+
         # Run the unified generation with progress tracking
         result = run_full_generation(
             db_factory=self._db_factory,
-            dispatcharr_client=self._dispatcharr_client,
+            dispatcharr_client=dispatcharr_client,
             progress_callback=progress_callback,
         )
 
