@@ -114,6 +114,10 @@ class ChannelLifecycleService:
         # Cache exception keywords
         self._exception_keywords: list | None = None
 
+        # Pending profile changes for bulk application
+        # Structure: {profile_id: {"add": set(channel_ids), "remove": set(channel_ids)}}
+        self._pending_profile_changes: dict[int, dict[str, set[int]]] = {}
+
         # Template engine
         self._context_builder = ContextBuilder(sports_service)
         self._resolver = TemplateResolver()
@@ -133,6 +137,75 @@ class ChannelLifecycleService:
         if self._logo_manager:
             self._logo_manager.clear_cache()
         self._exception_keywords = None
+        self._pending_profile_changes = {}
+
+    def _collect_profile_change(
+        self,
+        profile_id: int,
+        channel_id: int,
+        action: str,
+    ) -> None:
+        """Collect a profile change for bulk application later.
+
+        Args:
+            profile_id: Profile ID to modify
+            channel_id: Channel ID to add/remove
+            action: "add" or "remove"
+        """
+        if profile_id not in self._pending_profile_changes:
+            self._pending_profile_changes[profile_id] = {"add": set(), "remove": set()}
+        self._pending_profile_changes[profile_id][action].add(channel_id)
+
+    def _apply_pending_profile_changes(self) -> dict:
+        """Apply all pending profile changes using bulk API.
+
+        Returns:
+            Dict with stats: {profiles_updated, channels_added, channels_removed, errors}
+        """
+        if not self._pending_profile_changes or not self._channel_manager:
+            return {"profiles_updated": 0, "channels_added": 0, "channels_removed": 0}
+
+        stats = {"profiles_updated": 0, "channels_added": 0, "channels_removed": 0, "errors": []}
+
+        with self._dispatcharr_lock:
+            for profile_id, changes in self._pending_profile_changes.items():
+                add_ids = list(changes["add"])
+                remove_ids = list(changes["remove"])
+
+                if not add_ids and not remove_ids:
+                    continue
+
+                try:
+                    result = self._channel_manager.bulk_update_profile_channels(
+                        profile_id=profile_id,
+                        add_channel_ids=add_ids if add_ids else None,
+                        remove_channel_ids=remove_ids if remove_ids else None,
+                    )
+                    if result.success:
+                        stats["profiles_updated"] += 1
+                        stats["channels_added"] += len(add_ids)
+                        stats["channels_removed"] += len(remove_ids)
+                        logger.debug(
+                            f"Bulk profile update for profile {profile_id}: "
+                            f"+{len(add_ids)} -{len(remove_ids)} channels"
+                        )
+                    else:
+                        stats["errors"].append(f"Profile {profile_id}: {result.error}")
+                        logger.warning(f"Bulk profile update failed for profile {profile_id}: {result.error}")
+                except Exception as e:
+                    stats["errors"].append(f"Profile {profile_id}: {e}")
+                    logger.warning(f"Bulk profile update error for profile {profile_id}: {e}")
+
+        # Clear pending changes after applying
+        self._pending_profile_changes = {}
+
+        if stats["profiles_updated"] > 0:
+            logger.info(
+                f"Bulk profile updates: {stats['profiles_updated']} profiles, "
+                f"+{stats['channels_added']} -{stats['channels_removed']} channel assignments"
+            )
+
+        return stats
 
     def _get_exception_keywords(self, conn: Connection) -> list:
         """Get exception keywords with caching."""
@@ -388,9 +461,17 @@ class ChannelLifecycleService:
                             }
                         )
 
+                # Apply all pending profile changes in bulk
+                self._apply_pending_profile_changes()
+
         except Exception as e:
             logger.exception("Error processing matched streams")
             result.errors.append({"error": str(e)})
+            # Still try to apply pending profile changes even on error
+            try:
+                self._apply_pending_profile_changes()
+            except Exception:
+                pass
 
         return result
 
@@ -1201,30 +1282,18 @@ class ChannelLifecycleService:
                     else:
                         changes_made.append("profiles: no profiles")
                 else:
-                    # Specific profile IDs - use add/remove for granular control
+                    # Specific profile IDs - collect for bulk application
                     profiles_to_add = set(effective_profile_ids) - set(stored_profile_ids)
                     profiles_to_remove = set(stored_profile_ids) - set(effective_profile_ids)
 
-                    with self._dispatcharr_lock:
-                        for profile_id in profiles_to_remove:
-                            try:
-                                self._channel_manager.remove_from_profile(
-                                    profile_id, existing.dispatcharr_channel_id
-                                )
-                                logger.debug(f"Removed channel {existing.dispatcharr_channel_id} from profile {profile_id}")
-                                changes_made.append(f"removed from profile {profile_id}")
-                            except Exception as e:
-                                logger.warning(f"Failed to remove channel from profile {profile_id}: {e}")
+                    channel_id = existing.dispatcharr_channel_id
+                    for profile_id in profiles_to_remove:
+                        self._collect_profile_change(profile_id, channel_id, "remove")
+                        changes_made.append(f"queued remove from profile {profile_id}")
 
-                        for profile_id in profiles_to_add:
-                            try:
-                                self._channel_manager.add_to_profile(
-                                    profile_id, existing.dispatcharr_channel_id
-                                )
-                                logger.debug(f"Added channel {existing.dispatcharr_channel_id} to profile {profile_id}")
-                                changes_made.append(f"added to profile {profile_id}")
-                            except Exception as e:
-                                logger.warning(f"Failed to add channel to profile {profile_id}: {e}")
+                    for profile_id in profiles_to_add:
+                        self._collect_profile_change(profile_id, channel_id, "add")
+                        changes_made.append(f"queued add to profile {profile_id}")
 
                 # Update stored profile IDs in DB
                 update_managed_channel(
