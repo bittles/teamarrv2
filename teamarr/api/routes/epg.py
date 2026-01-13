@@ -454,33 +454,23 @@ def match_streams(
 
 
 def _get_combined_xmltv() -> str:
-    """Get combined XMLTV content from all enabled teams."""
-    from teamarr.database.settings import get_display_settings
-    from teamarr.utilities.xmltv import merge_xmltv_content
+    """Get combined XMLTV content from the generated file.
+
+    Uses the same file that's served to users via /epg/xmltv endpoint,
+    guaranteeing consistency between preview and actual output.
+    """
+    from pathlib import Path
+
+    from teamarr.database.settings import get_epg_settings
 
     with get_db() as conn:
-        # Only get XMLTV for active teams
-        rows = conn.execute(
-            """SELECT x.xmltv_content FROM team_epg_xmltv x
-               JOIN teams t ON x.team_id = t.id
-               WHERE t.active = 1
-               AND x.xmltv_content IS NOT NULL AND x.xmltv_content != ''
-               ORDER BY t.id"""
-        ).fetchall()
-        display_settings = get_display_settings(conn)
+        epg_settings = get_epg_settings(conn)
 
-    if not rows:
+    output_path = Path(epg_settings.epg_output_path)
+    if not output_path.exists():
         return ""
 
-    contents = [row["xmltv_content"] for row in rows if row["xmltv_content"]]
-    if not contents:
-        return ""
-
-    return merge_xmltv_content(
-        contents,
-        generator_name=display_settings.xmltv_generator_name,
-        generator_url=display_settings.xmltv_generator_url,
-    )
+    return output_path.read_text(encoding="utf-8")
 
 
 def _analyze_xmltv(xmltv_content: str) -> dict:
