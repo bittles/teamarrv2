@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 # VERSION - Single source of truth
 # =============================================================================
 
-BASE_VERSION = "2.0.0"
+BASE_VERSION = "2.0.1"
 
 
 def _get_version() -> str:
