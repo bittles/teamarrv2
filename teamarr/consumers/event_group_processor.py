@@ -1454,6 +1454,10 @@ class EventGroupProcessor:
             generation=getattr(self, "_generation", None),  # Use shared generation if set
             custom_regex_teams=group.custom_regex_teams,
             custom_regex_teams_enabled=group.custom_regex_teams_enabled,
+            custom_regex_date=group.custom_regex_date,
+            custom_regex_date_enabled=group.custom_regex_date_enabled,
+            custom_regex_time=group.custom_regex_time,
+            custom_regex_time_enabled=group.custom_regex_time_enabled,
         )
 
         result = matcher.match_all(streams, target_date, progress_callback=stream_progress_callback)

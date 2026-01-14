@@ -159,6 +159,10 @@ class StreamMatcher:
         generation: int | None = None,
         custom_regex_teams: str | None = None,
         custom_regex_teams_enabled: bool = False,
+        custom_regex_date: str | None = None,
+        custom_regex_date_enabled: bool = False,
+        custom_regex_time: str | None = None,
+        custom_regex_time_enabled: bool = False,
     ):
         """Initialize the matcher.
 
@@ -173,7 +177,11 @@ class StreamMatcher:
             user_tz: User timezone for date calculations
             generation: Cache generation counter (if None, will be fetched/incremented)
             custom_regex_teams: Custom regex pattern for extracting team names
-            custom_regex_teams_enabled: Whether custom regex is enabled
+            custom_regex_teams_enabled: Whether custom regex for teams is enabled
+            custom_regex_date: Custom regex pattern for extracting date
+            custom_regex_date_enabled: Whether custom regex for date is enabled
+            custom_regex_time: Custom regex pattern for extracting time
+            custom_regex_time_enabled: Whether custom regex for time is enabled
         """
         self._service = service
         self._db_factory = db_factory
@@ -184,11 +192,20 @@ class StreamMatcher:
         self._sport_durations = sport_durations or {}
         self._user_tz = user_tz or get_user_timezone()
 
-        # Custom regex configuration
+        # Custom regex configuration - create if any pattern is enabled
+        has_custom_regex = (
+            (custom_regex_teams_enabled and custom_regex_teams) or
+            (custom_regex_date_enabled and custom_regex_date) or
+            (custom_regex_time_enabled and custom_regex_time)
+        )
         self._custom_regex = CustomRegexConfig(
             teams_pattern=custom_regex_teams,
             teams_enabled=custom_regex_teams_enabled,
-        ) if custom_regex_teams_enabled and custom_regex_teams else None
+            date_pattern=custom_regex_date,
+            date_enabled=custom_regex_date_enabled,
+            time_pattern=custom_regex_time,
+            time_enabled=custom_regex_time_enabled,
+        ) if has_custom_regex else None
 
         # Initialize cache
         self._cache = StreamMatchCache(db_factory)

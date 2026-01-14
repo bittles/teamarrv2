@@ -10,6 +10,7 @@ strategy to use:
 import logging
 import re
 from dataclasses import dataclass
+from datetime import date, time
 from enum import Enum
 from re import Pattern
 
@@ -60,27 +61,61 @@ class ClassifiedStream:
 
 @dataclass
 class CustomRegexConfig:
-    """Configuration for custom regex team extraction."""
+    """Configuration for custom regex extraction (teams, date, time)."""
 
     teams_pattern: str | None = None
     teams_enabled: bool = False
+    date_pattern: str | None = None
+    date_enabled: bool = False
+    time_pattern: str | None = None
+    time_enabled: bool = False
 
-    # Compiled pattern (cached)
-    _compiled: Pattern | None = None
+    # Compiled patterns (cached)
+    _compiled_teams: Pattern | None = None
+    _compiled_date: Pattern | None = None
+    _compiled_time: Pattern | None = None
 
     def get_pattern(self) -> Pattern | None:
-        """Get compiled regex pattern, compiling on first access."""
+        """Get compiled teams regex pattern, compiling on first access."""
         if not self.teams_enabled or not self.teams_pattern:
             return None
 
-        if self._compiled is None:
+        if self._compiled_teams is None:
             try:
-                self._compiled = re.compile(self.teams_pattern, re.IGNORECASE)
+                self._compiled_teams = re.compile(self.teams_pattern, re.IGNORECASE)
             except re.error as e:
-                logger.warning("[CLASSIFY] Invalid custom regex pattern: %s", e)
+                logger.warning("[CLASSIFY] Invalid custom teams regex pattern: %s", e)
                 return None
 
-        return self._compiled
+        return self._compiled_teams
+
+    def get_date_pattern(self) -> Pattern | None:
+        """Get compiled date regex pattern, compiling on first access."""
+        if not self.date_enabled or not self.date_pattern:
+            return None
+
+        if self._compiled_date is None:
+            try:
+                self._compiled_date = re.compile(self.date_pattern, re.IGNORECASE)
+            except re.error as e:
+                logger.warning("[CLASSIFY] Invalid custom date regex pattern: %s", e)
+                return None
+
+        return self._compiled_date
+
+    def get_time_pattern(self) -> Pattern | None:
+        """Get compiled time regex pattern, compiling on first access."""
+        if not self.time_enabled or not self.time_pattern:
+            return None
+
+        if self._compiled_time is None:
+            try:
+                self._compiled_time = re.compile(self.time_pattern, re.IGNORECASE)
+            except re.error as e:
+                logger.warning("[CLASSIFY] Invalid custom time regex pattern: %s", e)
+                return None
+
+        return self._compiled_time
 
 
 def extract_teams_with_custom_regex(
@@ -122,6 +157,230 @@ def extract_teams_with_custom_regex(
         pass
 
     return None, None, False
+
+
+def extract_date_with_custom_regex(
+    text: str,
+    config: CustomRegexConfig,
+) -> date | None:
+    """Extract date using custom regex pattern.
+
+    Supports:
+    - Named group: (?P<date>...) - returns raw string to parse
+    - Named groups: (?P<month>...) (?P<day>...) (?P<year>...) - combines
+    - Single capture group - returns raw string to parse
+
+    Args:
+        text: Stream name (original, not normalized)
+        config: Custom regex configuration
+
+    Returns:
+        Extracted date or None
+    """
+    from datetime import datetime
+
+    pattern = config.get_date_pattern()
+    if not pattern:
+        return None
+
+    match = pattern.search(text)
+    if not match:
+        return None
+
+    try:
+        # Try named group 'date' first (full date string)
+        try:
+            date_str = match.group("date")
+            if date_str:
+                return _parse_date_string(date_str.strip())
+        except (IndexError, re.error):
+            pass
+
+        # Try individual named groups (month, day, year)
+        try:
+            month_str = match.group("month")
+            day_str = match.group("day")
+            if month_str and day_str:
+                month = _parse_month(month_str.strip())
+                day = int(day_str.strip())
+                try:
+                    year = int(match.group("year").strip())
+                    if year < 100:
+                        year += 2000 if year < 50 else 1900
+                except (IndexError, re.error, ValueError, AttributeError):
+                    year = datetime.now().year
+                return date(year, month, day)
+        except (IndexError, re.error, ValueError, AttributeError):
+            pass
+
+        # Try first capture group as raw date string
+        groups = match.groups()
+        if groups and groups[0]:
+            return _parse_date_string(groups[0].strip())
+
+    except (ValueError, TypeError) as e:
+        logger.debug("[CLASSIFY] Failed to parse custom date: %s", e)
+
+    return None
+
+
+def _parse_month(month_str: str) -> int:
+    """Parse month from string (name or number)."""
+    month_names = {
+        "jan": 1, "january": 1,
+        "feb": 2, "february": 2,
+        "mar": 3, "march": 3,
+        "apr": 4, "april": 4,
+        "may": 5,
+        "jun": 6, "june": 6,
+        "jul": 7, "july": 7,
+        "aug": 8, "august": 8,
+        "sep": 9, "sept": 9, "september": 9,
+        "oct": 10, "october": 10,
+        "nov": 11, "november": 11,
+        "dec": 12, "december": 12,
+    }
+    month_lower = month_str.lower()
+    if month_lower in month_names:
+        return month_names[month_lower]
+    return int(month_str)
+
+
+def _parse_date_string(date_str: str) -> date | None:
+    """Parse various date string formats."""
+    from datetime import datetime
+
+    # Common formats to try
+    formats = [
+        "%d %b",      # 14 Jan
+        "%d %B",      # 14 January
+        "%b %d",      # Jan 14
+        "%B %d",      # January 14
+        "%m/%d/%Y",   # 01/14/2026
+        "%m/%d/%y",   # 01/14/26
+        "%d/%m/%Y",   # 14/01/2026
+        "%d/%m/%y",   # 14/01/26
+        "%Y-%m-%d",   # 2026-01-14
+        "%d-%m-%Y",   # 14-01-2026
+    ]
+
+    # Clean up ordinal suffixes (1st, 2nd, 3rd, 4th)
+    date_str = re.sub(r"(\d+)(st|nd|rd|th)", r"\1", date_str, flags=re.IGNORECASE)
+
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(date_str, fmt)
+            # If no year in format, use current year
+            if "%Y" not in fmt and "%y" not in fmt:
+                parsed = parsed.replace(year=datetime.now().year)
+            return parsed.date()
+        except ValueError:
+            continue
+
+    return None
+
+
+def extract_time_with_custom_regex(
+    text: str,
+    config: CustomRegexConfig,
+) -> time | None:
+    """Extract time using custom regex pattern.
+
+    Supports:
+    - Named group: (?P<time>...) - returns raw string to parse
+    - Named groups: (?P<hour>...) (?P<minute>...) (?P<ampm>...) - combines
+    - Single capture group - returns raw string to parse
+
+    Args:
+        text: Stream name (original, not normalized)
+        config: Custom regex configuration
+
+    Returns:
+        Extracted time or None
+    """
+    pattern = config.get_time_pattern()
+    if not pattern:
+        return None
+
+    match = pattern.search(text)
+    if not match:
+        return None
+
+    try:
+        # Try named group 'time' first (full time string)
+        try:
+            time_str = match.group("time")
+            if time_str:
+                return _parse_time_string(time_str.strip())
+        except (IndexError, re.error):
+            pass
+
+        # Try individual named groups (hour, minute, ampm)
+        try:
+            hour = int(match.group("hour").strip())
+            try:
+                minute = int(match.group("minute").strip())
+            except (IndexError, re.error, ValueError, AttributeError):
+                minute = 0
+
+            try:
+                ampm = match.group("ampm").strip().upper()
+                if ampm == "PM" and hour < 12:
+                    hour += 12
+                elif ampm == "AM" and hour == 12:
+                    hour = 0
+            except (IndexError, re.error, ValueError, AttributeError):
+                pass
+
+            return time(hour, minute)
+        except (IndexError, re.error, ValueError, AttributeError):
+            pass
+
+        # Try first capture group as raw time string
+        groups = match.groups()
+        if groups and groups[0]:
+            return _parse_time_string(groups[0].strip())
+
+    except (ValueError, TypeError) as e:
+        logger.debug("[CLASSIFY] Failed to parse custom time: %s", e)
+
+    return None
+
+
+def _parse_time_string(time_str: str) -> time | None:
+    """Parse various time string formats."""
+    from datetime import datetime
+
+    # Common formats to try
+    formats = [
+        "%I:%M%p",    # 6:45pm
+        "%I:%M %p",   # 6:45 pm
+        "%I%p",       # 6pm
+        "%I %p",      # 6 pm
+        "%H:%M",      # 18:45
+        "%H%M",       # 1845
+    ]
+
+    # Normalize: remove spaces between number and am/pm
+    time_str_normalized = re.sub(r"(\d+)\s*(am|pm)", r"\1\2", time_str, flags=re.IGNORECASE)
+
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(time_str_normalized, fmt)
+            return parsed.time()
+        except ValueError:
+            continue
+
+    # Also try the original string
+    if time_str != time_str_normalized:
+        for fmt in formats:
+            try:
+                parsed = datetime.strptime(time_str, fmt)
+                return parsed.time()
+            except ValueError:
+                continue
+
+    return None
 
 
 # =============================================================================
@@ -444,6 +703,7 @@ def classify_stream(
 
     Classification order:
     1. Normalize stream name
+    1b. Apply custom date/time regex (if configured) to override extracted values
     2. Check for placeholder patterns → PLACEHOLDER
     3. Check for event card keywords/type → EVENT_CARD
     4. Try custom regex for team extraction (if configured) → TEAM_VS_TEAM
@@ -453,7 +713,7 @@ def classify_stream(
     Args:
         stream_name: Raw stream name from M3U
         league_event_type: Optional event_type from leagues table
-        custom_regex: Optional custom regex configuration for team extraction
+        custom_regex: Optional custom regex configuration for extraction
 
     Returns:
         ClassifiedStream with category and extracted info
@@ -461,6 +721,27 @@ def classify_stream(
     # Step 1: Normalize
     normalized = normalize_stream(stream_name)
     result: ClassifiedStream | None = None
+
+    # Step 1b: Apply custom date/time regex to override built-in extraction
+    # Uses ORIGINAL stream name (not normalized) for more flexible matching
+    if custom_regex:
+        if custom_regex.date_enabled:
+            custom_date = extract_date_with_custom_regex(stream_name, custom_regex)
+            if custom_date:
+                normalized.extracted_date = custom_date
+                logger.debug(
+                    "[CLASSIFY] Custom date regex extracted: %s from '%s'",
+                    custom_date, stream_name[:50]
+                )
+
+        if custom_regex.time_enabled:
+            custom_time = extract_time_with_custom_regex(stream_name, custom_regex)
+            if custom_time:
+                normalized.extracted_time = custom_time
+                logger.debug(
+                    "[CLASSIFY] Custom time regex extracted: %s from '%s'",
+                    custom_time, stream_name[:50]
+                )
 
     # Early exit for empty streams
     if not normalized.normalized:
