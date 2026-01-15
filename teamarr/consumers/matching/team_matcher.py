@@ -397,7 +397,8 @@ class TeamMatcher:
         best_match: Event | None = None
         best_method: MatchMethod = MatchMethod.FUZZY
         best_confidence: float = 0.0
-        best_date_distance: int = 999  # Days from target_date
+        best_is_future: bool = False  # Whether best match is today or future
+        best_date_distance: int = 999  # Absolute days from target_date
 
         for event in events:
             # Validate event is within search window (lifecycle handles exclusions)
@@ -422,16 +423,29 @@ class TeamMatcher:
             match_result = self._match_teams_to_event(team1_normalized, team2_normalized, event)
 
             if match_result:
-                date_distance = abs((event_date - ctx.target_date).days)
+                # Calculate date metrics for comparison
+                days_from_target = (event_date - ctx.target_date).days
+                is_future = days_from_target >= 0  # Today or future
+                abs_distance = abs(days_from_target)
 
-                # Prefer higher confidence, then closer date to target_date
-                if match_result[1] > best_confidence or (
-                    match_result[1] == best_confidence and date_distance < best_date_distance
-                ):
+                # Prefer: higher confidence > future over past > closer to target_date
+                is_better = False
+                if match_result[1] > best_confidence:
+                    is_better = True
+                elif match_result[1] == best_confidence:
+                    if is_future and not best_is_future:
+                        # Future beats past
+                        is_better = True
+                    elif is_future == best_is_future and abs_distance < best_date_distance:
+                        # Same future/past status, prefer closer
+                        is_better = True
+
+                if is_better:
                     best_match = event
                     best_method = match_result[0]
                     best_confidence = match_result[1]
-                    best_date_distance = date_distance
+                    best_is_future = is_future
+                    best_date_distance = abs_distance
 
         if best_match:
             # If multiple events same day (doubleheader), pick closest to stream time
@@ -511,7 +525,8 @@ class TeamMatcher:
         best_league: str | None = None
         best_method: MatchMethod = MatchMethod.FUZZY
         best_confidence: float = 0.0
-        best_date_distance: int = 999  # Days from target_date
+        best_is_future: bool = False  # Whether best match is today or future
+        best_date_distance: int = 999  # Absolute days from target_date
 
         for league, event in events:
             # Validate event is within search window (lifecycle handles exclusions)
@@ -536,17 +551,30 @@ class TeamMatcher:
             match_result = self._match_teams_to_event(team1_normalized, team2_normalized, event)
 
             if match_result:
-                date_distance = abs((event_date - ctx.target_date).days)
+                # Calculate date metrics for comparison
+                days_from_target = (event_date - ctx.target_date).days
+                is_future = days_from_target >= 0  # Today or future
+                abs_distance = abs(days_from_target)
 
-                # Prefer higher confidence, then closer date to target_date
-                if match_result[1] > best_confidence or (
-                    match_result[1] == best_confidence and date_distance < best_date_distance
-                ):
+                # Prefer: higher confidence > future over past > closer to target_date
+                is_better = False
+                if match_result[1] > best_confidence:
+                    is_better = True
+                elif match_result[1] == best_confidence:
+                    if is_future and not best_is_future:
+                        # Future beats past
+                        is_better = True
+                    elif is_future == best_is_future and abs_distance < best_date_distance:
+                        # Same future/past status, prefer closer
+                        is_better = True
+
+                if is_better:
                     best_match = event
                     best_league = league
                     best_method = match_result[0]
                     best_confidence = match_result[1]
-                    best_date_distance = date_distance
+                    best_is_future = is_future
+                    best_date_distance = abs_distance
 
         if best_match and best_league:
             logger.debug(

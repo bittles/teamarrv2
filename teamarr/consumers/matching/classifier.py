@@ -481,18 +481,19 @@ def _clean_team_name(name: str) -> str:
     if not name:
         return ""
 
-    # Remove datetime masks and trailing timezone remnants
+    # Truncate at "//" which is often used as timezone separator
+    # "Indiana Pacers // UK Wed 14 Jan" → "Indiana Pacers"
+    if " // " in name:
+        name = name.split(" // ")[0]
+
+    # Remove datetime masks
     name = re.sub(r"\bDATE_MASK\b", "", name)
     name = re.sub(r"\bTIME_MASK\b", "", name)
-    # After mask removal, clean up "@ ET", "@ EST", "@ PT", etc.
+
+    # Clean up "@ ET", "@ EST", "@ PT", etc. at end
     name = re.sub(r"\s*@\s*[A-Z]{2,4}T?\s*$", "", name, flags=re.IGNORECASE)
 
-    # Remove leading punctuation ONLY (not digits - team names like 49ers, 76ers start with numbers)
-    # Strip whitespace, dashes, colons, periods, commas at the start
-    name = re.sub(r"^[\s\-:.,]+", "", name)
-
     # Remove trailing punctuation (NOT digits - they could be team names like 49ers, 76ers)
-    # Only strip trailing separators that shouldn't be part of team names
     name = re.sub(r"[\s\-:.,@]+$", "", name)
 
     # Remove channel numbers like "(1)" or "[2]"
@@ -501,23 +502,7 @@ def _clean_team_name(name: str) -> str:
     # Remove HD, SD, etc.
     name = re.sub(r"\s+\b(HD|SD|FHD|4K|UHD)\b\s*$", "", name, flags=re.IGNORECASE)
 
-    # Strip leading channel numbers like "02 :", "15 :", "142 :" (from ESPN+ XX :)
-    name = re.sub(r"^\d+\s*:\s*", "", name)
-
-    # Strip numbered channel prefixes like "NFL Game Pass 03:", "ESPN+ 45:", "Sportsnet+ 04:"
-    # Pattern: Words (may include +) followed by optional number, then colon
-    # This handles "Name Number:" and "Name+ Number:" patterns at the start
-    name = re.sub(r"^[A-Za-z][A-Za-z\s+]*\d*:\s*", "", name)
-
     # Strip round/competition indicators at end of team names
-    # Common patterns in cup competitions, playoffs, etc.
-    # - (Round 3), (Rd 3), (R3), (Rnd 3), (3rd Round), (Third Round)
-    # - (Group A), (Grp A), (Group Stage)
-    # - (Matchday 5), (MD 5), (MD5), (Week 10)
-    # - (Leg 1), (1st Leg), (2nd Leg), (Leg One)
-    # - (Final), (Semi-Final), (Quarter-Final), (QF), (SF), (Semi)
-    # - (Playoffs), (Playoff), (Play-off)
-    # - (Qualifying), (Qual), (Q1), (Q2)
     round_pattern = r"""
         \s*\(
         (?:
@@ -539,29 +524,45 @@ def _clean_team_name(name: str) -> str:
     """
     name = re.sub(round_pattern, "", name, flags=re.IGNORECASE | re.VERBOSE)
 
-    # Handle "|" separator - often used for show description before team names
+    # Handle "|" separator - often used for show/league prefix before team names
     # "Manningcast | MNF with Peyton & Eli: Seahawks" → take part after last "|"
-    # But only if there's no game separator after the "|" portion
+    # "NFL | 02 - 1/17 8PM 49ers" → take "49ers"
     if "|" in name:
-        # Check if the part after the last colon looks like a team name
         parts = name.split("|")
         last_part = parts[-1].strip()
+
         # If the last part after "|" has a colon with something after it, use that
         if ":" in last_part:
             after_colon = last_part.split(":")[-1].strip()
             if after_colon and len(after_colon) >= 3:
                 name = after_colon
+        else:
+            # No colon - just use the part after the last "|"
+            name = last_part
 
-    # Strip show name prefixes that precede team names
-    # Patterns like "MNF Playbook:", "NFL RedZone:", "Inside the NBA:"
-    # Match pattern: "Word Word:" or "Word Word Word:" at the start
-    # Must start with capital letter and contain only letters/spaces before colon
-    # Apply repeatedly to handle nested prefixes like "Channel: Show: Team"
+    # Strip channel number prefixes like "02 -", "15 -", "142 -" at the start
+    name = re.sub(r"^\d+\s*-\s*", "", name)
+
+    # Strip leading channel numbers like "02 :", "15 :", "142 :"
+    name = re.sub(r"^\d+\s*:\s*", "", name)
+
+    # Strip numbered channel prefixes like "NFL Game Pass 03:", "ESPN+ 45:"
+    name = re.sub(r"^[A-Za-z][A-Za-z\s+]*\d*:\s*", "", name)
+
+    # Strip show name prefixes like "MNF Playbook:", "NFL RedZone:"
     prev = None
     while prev != name:
         prev = name
         name = re.sub(r"^[A-Z][A-Za-z\s]+:\s*", "", name)
 
+    # Remove leading punctuation and whitespace
+    name = re.sub(r"^[\s\-:.,]+", "", name)
+
+    # NOW remove unmasked time patterns at the start (e.g., "3PM Texans" → "Texans")
+    # This must happen AFTER prefix stripping so the time is actually at the start
+    name = re.sub(r"^\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM)\s*", "", name, flags=re.IGNORECASE)
+
+    # Final cleanup of leading/trailing whitespace
     return name.strip()
 
 

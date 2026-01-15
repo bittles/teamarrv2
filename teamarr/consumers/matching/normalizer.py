@@ -165,10 +165,13 @@ DATE_PATTERNS = [
     (r"\b(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})\b", "DATE_MASK_ISO"),
     # 12/31/25, 12/31/2025 (MM/DD/YY or MM/DD/YYYY)
     (r"\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})\b", "DATE_MASK"),
-    # Dec 31, December 31
-    (rf"\b({_MONTHS})[a-z]*\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", "DATE_MASK"),
-    # 31 Dec, 31 December
+    # 1/17, 12/31 (MM/DD without year) - infer year based on proximity to today
+    # Must come after MM/DD/YYYY to avoid partial matches
+    (r"\b(\d{1,2})[/\-](\d{1,2})\b", "DATE_MASK_NO_YEAR"),
+    # 31 Dec, 31 December - check this BEFORE "Dec 31" to prefer "14 Jan" over "Jan 11"
     (rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTHS})[a-z]*\b", "DATE_MASK"),
+    # Dec 31, December 31 - use negative lookahead (?!:) to avoid matching "Jan 11:45pm"
+    (rf"\b({_MONTHS})[a-z]*\s+(\d{{1,2}})(?:st|nd|rd|th)?(?!:)\b", "DATE_MASK"),
 ]
 
 # Time patterns to extract and mask
@@ -204,7 +207,8 @@ def extract_and_mask_datetime(text: str) -> tuple[str, date | None, time | None]
         match = re.search(pattern, result, re.IGNORECASE)
         if match:
             is_iso = mask == "DATE_MASK_ISO"
-            extracted_date = _parse_date_match(match, is_iso=is_iso)
+            no_year = mask == "DATE_MASK_NO_YEAR"
+            extracted_date = _parse_date_match(match, is_iso=is_iso, no_year=no_year)
             result = re.sub(pattern, " DATE_MASK ", result, count=1, flags=re.IGNORECASE)
             break
 
@@ -222,12 +226,13 @@ def extract_and_mask_datetime(text: str) -> tuple[str, date | None, time | None]
     return result, extracted_date, extracted_time
 
 
-def _parse_date_match(match: re.Match, is_iso: bool = False) -> date | None:
+def _parse_date_match(match: re.Match, is_iso: bool = False, no_year: bool = False) -> date | None:
     """Parse a date from regex match.
 
     Args:
         match: Regex match object
         is_iso: True if pattern matched ISO format (YYYY-MM-DD)
+        no_year: True if pattern matched MM/DD without year (infer year)
     """
     try:
         groups = match.groups()
@@ -255,14 +260,16 @@ def _parse_date_match(match: re.Match, is_iso: bool = False) -> date | None:
                 day_match = re.search(r"(\d{1,2})", text)
                 if day_match:
                     day = int(day_match.group(1))
-                    # Assume current year for now
-                    from datetime import datetime
-
-                    year = datetime.now().year
-                    return date(year, month_num, day)
+                    return _infer_year_for_date(month_num, day)
                 return None
 
-        # Numeric date patterns
+        # MM/DD without year - infer year based on proximity to today
+        if no_year and len(groups) >= 2:
+            month = int(groups[0])
+            day = int(groups[1])
+            return _infer_year_for_date(month, day)
+
+        # Numeric date patterns with year
         if len(groups) >= 3:
             if is_iso:
                 # ISO format: YYYY-MM-DD
@@ -285,6 +292,35 @@ def _parse_date_match(match: re.Match, is_iso: bool = False) -> date | None:
         pass
 
     return None
+
+
+def _infer_year_for_date(month: int, day: int) -> date | None:
+    """Infer the year for a MM/DD date based on proximity to today.
+
+    For sports streams, prefer dates in the near future over past.
+    If the date in current year is more than 6 months ago, assume next year.
+    """
+    from datetime import datetime
+
+    today = datetime.now().date()
+    current_year = today.year
+
+    try:
+        # Try current year first
+        candidate = date(current_year, month, day)
+
+        # If more than 6 months in the past, try next year
+        days_ago = (today - candidate).days
+        if days_ago > 180:
+            candidate = date(current_year + 1, month, day)
+        # If more than 6 months in the future, try previous year
+        elif days_ago < -180:
+            candidate = date(current_year - 1, month, day)
+
+        return candidate
+    except ValueError:
+        # Invalid date (e.g., Feb 30)
+        return None
 
 
 def _parse_time_match(match: re.Match) -> time | None:
