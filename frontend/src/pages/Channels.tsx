@@ -9,6 +9,8 @@ import {
   Tv,
   Search,
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -113,6 +115,7 @@ export function Channels() {
   const [resetLoading, setResetLoading] = useState(false)
   const [resetExecuting, setResetExecuting] = useState(false)
   const [resetChannels, setResetChannels] = useState<ResetChannelInfo[]>([])
+  const [deletedCollapsed, setDeletedCollapsed] = useState(true)
 
   const queryClient = useQueryClient()
 
@@ -630,13 +633,21 @@ export function Channels() {
       {/* Recently Deleted */}
       {deletedChannels.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader
+            className="pb-2 cursor-pointer select-none hover:bg-muted/50 transition-colors"
+            onClick={() => setDeletedCollapsed(!deletedCollapsed)}
+          >
             <CardTitle className="text-base flex items-center gap-2">
+              {deletedCollapsed ? (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
               <Clock className="h-4 w-4 text-muted-foreground" />
               Recently Deleted ({deletedChannels.length})
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          {!deletedCollapsed && <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -690,7 +701,7 @@ export function Channels() {
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
+          </CardContent>}
         </Card>
       )}
 
