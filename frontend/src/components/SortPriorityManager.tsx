@@ -11,7 +11,6 @@ import {
 import {
   useSortPriorities,
   useReorderSortPriorities,
-  useDeleteSortPriority,
   useAutoPopulateSortPriorities,
 } from "@/hooks/useSortPriorities"
 import type { SortPriorityReorderItem } from "@/api/sortPriorities"
@@ -24,7 +23,6 @@ interface SortPriorityManagerProps {
 export function SortPriorityManager({ showWhenSortBy = "sport_league_time", currentSortBy }: SortPriorityManagerProps) {
   const { data: priorities, isLoading, refetch } = useSortPriorities()
   const reorderMutation = useReorderSortPriorities()
-  const deleteMutation = useDeleteSortPriority()
   const autoPopulateMutation = useAutoPopulateSortPriorities()
 
   // Don't render if sort_by doesn't match
@@ -73,18 +71,6 @@ export function SortPriorityManager({ showWhenSortBy = "sport_league_time", curr
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to reorder")
       refetch()
-    }
-  }
-
-  const handleDelete = async (item: HierarchicalItem) => {
-    try {
-      await deleteMutation.mutateAsync({
-        sport: item.group,
-        leagueCode: item.child ?? undefined,
-      })
-      toast.success("Priority removed")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete")
     }
   }
 
@@ -172,8 +158,6 @@ export function SortPriorityManager({ showWhenSortBy = "sport_league_time", curr
         <HierarchicalSortable
           items={items}
           onReorder={handleReorder}
-          onDelete={handleDelete}
-          isDeleting={deleteMutation.isPending}
           renderGroupExtra={renderGroupExtra}
           renderChildExtra={renderChildExtra}
           emptyMessage="No sort priorities configured. Click 'Auto-populate' to add all active sports/leagues."

@@ -7,7 +7,6 @@ from teamarr.database import get_db
 from .models import (
     ChannelNumberingSettingsModel,
     ChannelNumberingSettingsUpdate,
-    GlobalReassignResponse,
 )
 
 router = APIRouter()
@@ -85,28 +84,4 @@ def update_channel_numbering_settings(update: ChannelNumberingSettingsUpdate):
         numbering_mode=settings.numbering_mode,
         sorting_scope=settings.sorting_scope,
         sort_by=settings.sort_by,
-    )
-
-
-@router.post("/settings/channel-numbering/reassign-globally", response_model=GlobalReassignResponse)
-def reassign_channels_globally():
-    """Reassign all AUTO channel numbers based on global sort order.
-
-    This operation:
-    1. Gets all AUTO channels sorted by sport/league/time priorities
-    2. Assigns sequential numbers starting from channel_range_start
-    3. Returns statistics about channels moved
-
-    WARNING: This may cause channel drift in DVR systems. Use with caution.
-    """
-    from teamarr.database.channel_numbers import reassign_channels_globally
-
-    with get_db() as conn:
-        result = reassign_channels_globally(conn)
-        conn.commit()
-
-    return GlobalReassignResponse(
-        channels_processed=result["channels_processed"],
-        channels_moved=result["channels_moved"],
-        drift_details=result["drift_details"],
     )

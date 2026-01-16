@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Plus, X, Loader2, Check } from "lucide-react"
+import { Plus, X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -227,7 +227,6 @@ export function ChannelProfileSelector({
                   disabled={disabled}
                 />
                 <span className="text-sm flex-1">{profile.name}</span>
-                {isSelected && <Check className="h-4 w-4 text-primary" />}
               </label>
             )
           })

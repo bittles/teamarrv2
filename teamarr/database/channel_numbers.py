@@ -794,6 +794,7 @@ def get_all_auto_channels_globally_sorted(conn: Connection) -> list[dict]:
     cursor = conn.execute("""
         SELECT
             mc.id,
+            mc.dispatcharr_channel_id,
             mc.channel_number,
             mc.channel_name,
             mc.event_epg_group_id,
@@ -813,6 +814,7 @@ def get_all_auto_channels_globally_sorted(conn: Connection) -> list[dict]:
     for row in cursor.fetchall():
         channels.append({
             "id": row["id"],
+            "dispatcharr_channel_id": row["dispatcharr_channel_id"],
             "channel_number": row["channel_number"],
             "channel_name": row["channel_name"],
             "event_epg_group_id": row["event_epg_group_id"],
@@ -912,6 +914,7 @@ def reassign_channels_globally(conn: Connection) -> dict:
             )
             drift_details.append({
                 "channel_id": ch["id"],
+                "dispatcharr_channel_id": ch["dispatcharr_channel_id"],
                 "channel_name": ch["channel_name"],
                 "old_number": old_num,
                 "new_number": next_num,

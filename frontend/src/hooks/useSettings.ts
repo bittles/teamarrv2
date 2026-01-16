@@ -27,7 +27,6 @@ import {
   deleteExceptionKeyword,
   getChannelNumberingSettings,
   updateChannelNumberingSettings,
-  reassignChannelsGlobally,
 } from "@/api/settings"
 import type {
   DispatcharrSettings,
@@ -288,14 +287,3 @@ export function useUpdateChannelNumberingSettings() {
   })
 }
 
-export function useReassignChannelsGlobally() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: reassignChannelsGlobally,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["channels"] })
-      queryClient.invalidateQueries({ queryKey: ["settings"] })
-    },
-  })
-}

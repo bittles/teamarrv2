@@ -194,14 +194,6 @@ class ChannelNumberingSettingsUpdate(BaseModel):
     sort_by: str | None = None
 
 
-class GlobalReassignResponse(BaseModel):
-    """Response from global channel reassignment."""
-
-    channels_processed: int
-    channels_moved: int
-    drift_details: list[dict] = []
-
-
 # =============================================================================
 # ALL SETTINGS
 # =============================================================================

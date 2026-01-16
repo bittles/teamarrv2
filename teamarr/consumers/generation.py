@@ -289,6 +289,27 @@ def run_full_generation(
                         global_result["channels_moved"],
                     )
 
+                    # Sync moved channel numbers to Dispatcharr
+                    if dispatcharr_client:
+                        synced = 0
+                        for ch in global_result.get("drift_details", []):
+                            disp_id = ch.get("dispatcharr_channel_id")
+                            new_num = ch.get("new_number")
+                            if disp_id and new_num:
+                                try:
+                                    dispatcharr_client.channels.update_channel(
+                                        disp_id,
+                                        {"channel_number": new_num},
+                                    )
+                                    synced += 1
+                                except Exception as e:
+                                    logger.warning(
+                                        "[GENERATION] Failed to sync channel %s to Dispatcharr: %s",
+                                        ch.get("channel_name"), e
+                                    )
+                        if synced:
+                            logger.info("[GENERATION] Synced %d channel numbers to Dispatcharr", synced)
+
         # Step 4: Merge and save XMLTV (95-96%)
         update_progress("saving", 95, "Saving XMLTV...")
 

@@ -94,16 +94,6 @@ export interface ChannelNumberingSettingsUpdate {
   sort_by?: "sport_league_time" | "time" | "stream_order"
 }
 
-export interface GlobalReassignResponse {
-  channels_processed: number
-  channels_moved: number
-  drift_details: Array<{
-    channel_id: number
-    channel_name: string
-    old_number: number | string | null
-    new_number: number
-  }>
-}
 
 export interface ExceptionKeyword {
   id: number
@@ -322,6 +312,3 @@ export async function updateChannelNumberingSettings(
   return api.put("/settings/channel-numbering", data)
 }
 
-export async function reassignChannelsGlobally(): Promise<GlobalReassignResponse> {
-  return api.post("/settings/channel-numbering/reassign-globally", {})
-}
