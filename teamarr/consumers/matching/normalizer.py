@@ -277,6 +277,7 @@ def _parse_date_match(match: re.Match, is_iso: bool = False) -> date | None:
                 if len(text) > 7:
                     year = int(groups[2])
                 else:
+                    from datetime import datetime
                     year = datetime.now().year
 
                 # Handle 2-digit year
