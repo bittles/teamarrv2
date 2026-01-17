@@ -371,8 +371,8 @@ def normalize_stream(stream_name: str) -> NormalizedStream:
 
     logger.debug(
         "[NORMALIZE] '%s' -> '%s' (date=%s, time=%s, prefix=%s)",
-        original[:60],
-        text[:60],
+        original[:90],
+        text[:90],
         extracted_date,
         extracted_time,
         provider_prefix,
