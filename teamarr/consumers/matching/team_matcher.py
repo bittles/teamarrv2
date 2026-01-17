@@ -476,7 +476,7 @@ class TeamMatcher:
             reason = FailedReason.NO_EVENT_FOUND
 
         logger.debug(
-            "[FAILED] stream_id=%d reason=%s teams=%s/%s",
+            "[FAILED] stream_id=%d reason=%s team1='%s' team2='%s'",
             ctx.stream_id,
             reason.value,
             ctx.team1,
@@ -577,7 +577,7 @@ class TeamMatcher:
             reason = FailedReason.NO_EVENT_FOUND
 
         logger.debug(
-            "[FAILED] stream_id=%d reason=%s teams=%s/%s",
+            "[FAILED] stream_id=%d reason=%s team1='%s' team2='%s'"
             ctx.stream_id,
             reason.value,
             ctx.team1,
