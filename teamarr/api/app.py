@@ -100,7 +100,7 @@ def _run_startup_tasks():
         startup_state.set_phase(StartupPhase.REFRESHING_CACHE)
         cache_service = create_cache_service(get_db)
         logger.info("[STARTUP] Refreshing team/league cache on startup...")
-        cache_service.refresh()
+        #cache_service.refresh()
         logger.info("[STARTUP] Team/league cache refreshed")
 
         # Reload league mapping service to pick up new league names from cache
