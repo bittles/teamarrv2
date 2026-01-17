@@ -33,9 +33,10 @@ BUILTIN_EVENT_PATTERNS = [
     r"\s+at\s+",  # "Team A at Team B" (word boundary)
     r"\s+v\s+",  # "Team A v Team B"
     # Date patterns commonly used in event streams
-    r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b",
-    r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b",  # MM/DD or MM/DD/YYYY
-    r"\b\d{4}-\d{2}-\d{2}\b",  # ISO date
+    r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b", # MMM DD
+    r"\d{1,2}(?:st|nd|rd|th)?\b\s+\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b", # DDst MMM
+    r"\b\d{1,2}(?:/|\.)\d{1,2}(?:(?:/|\.)\d{2,4})?\b",  # MM/DD or MM/DD/YYYY or MM.DD or MM.DD.YYYY
+    r"\b\d{4}(?:-|\s)\d{2}(?:-|\s)\d{2}\b",  # ISO date
     # Time patterns
     r"\d{1,2}:\d{2}\s*(?:AM|PM|ET|PT|CT|MT)\b",
     # Event-style patterns (non-team-vs-team sports)
