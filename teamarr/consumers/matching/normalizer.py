@@ -162,13 +162,13 @@ def apply_city_translations(text: str) -> str:
 _MONTHS = r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
 DATE_PATTERNS = [
     # ISO format: 2026-01-09 (YYYY-MM-DD) - must be before MM/DD/YYYY pattern
-    (r"\b(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})\b", "DATE_MASK_ISO"),
+    (r"\b(\d{4})(?:-|\s)(\d{1,2})(?:-|\s)(\d{1,2})\b", "DATE_MASK_ISO"),
     # 12/31/25, 12/31/2025 (MM/DD/YY or MM/DD/YYYY)
-    (r"\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})\b", "DATE_MASK"),
+    (r"\b(\d{1,2})(?:/|\.)(\d{1,2})(?:(?:/|\.)(\d{2,4})\b)?", "DATE_MASK"),
+    # 31 Dec, 31 December - must be before forward matching MMM dd
+    (rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTHS})[a-z]*\b", "DATE_MASK"),
     # Dec 31, December 31
     (rf"\b({_MONTHS})[a-z]*\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", "DATE_MASK"),
-    # 31 Dec, 31 December
-    (rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTHS})[a-z]*\b", "DATE_MASK"),
 ]
 
 # Time patterns to extract and mask
@@ -273,7 +273,11 @@ def _parse_date_match(match: re.Match, is_iso: bool = False) -> date | None:
                 # US format: MM/DD/YY or MM/DD/YYYY
                 month = int(groups[0])
                 day = int(groups[1])
-                year = int(groups[2])
+                # Check if MM/DD/YY or just MM/DD
+                if len(text) > 7:
+                    year = int(groups[2])
+                else:
+                    year = datetime.now().year
 
                 # Handle 2-digit year
                 if year < 100:
