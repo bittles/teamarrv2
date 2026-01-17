@@ -307,6 +307,7 @@ class StreamFilter:
         - "Team A @ Team B"
         - "Team A v Team B"
         - "Team A - Team B"
+        - "Team A x Team B"
         """
         # Common separators: vs, v, @, at, -
         patterns = [
@@ -315,6 +316,7 @@ class StreamFilter:
             r"(.+?)\s+(?:at)\s+(.+?)(?:\s*[\|\-\[]|$)",
             r"(.+?)\s+v\s+(.+?)(?:\s*[\|\-\[]|$)",
             r"(.+?)\s+-\s+(.+?)(?:\s*[\|\-\[]|$)",
+            r"(.+?)\s+x\s+(.+?)(?:\s*[\|\-\[]|$)",
         ]
 
         for pattern in patterns:
