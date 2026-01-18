@@ -646,12 +646,12 @@ class TeamMatcher:
             # First check built-in aliases
             canonical = TEAM_ALIASES.get(team1.lower())
             if canonical:
-                # Check if canonical matches either team
-                if any(canonical in p for p in home_patterns):
+                # Check if canonical matches either team (compare against pattern strings)
+                if any(canonical in tp.pattern for tp in home_patterns):
                     team1_match = True
                     best_score = max(best_score, 100.0)
                     method = MatchMethod.ALIAS
-                elif any(canonical in p for p in away_patterns):
+                elif any(canonical in tp.pattern for tp in away_patterns):
                     team1_match = True
                     best_score = max(best_score, 100.0)
                     method = MatchMethod.ALIAS
@@ -671,12 +671,12 @@ class TeamMatcher:
             # First check built-in aliases
             canonical = TEAM_ALIASES.get(team2.lower())
             if canonical:
-                if any(canonical in p for p in home_patterns):
+                if any(canonical in tp.pattern for tp in home_patterns):
                     team2_match = True
                     best_score = max(best_score, 100.0)
                     if method != MatchMethod.ALIAS:
                         method = MatchMethod.ALIAS
-                elif any(canonical in p for p in away_patterns):
+                elif any(canonical in tp.pattern for tp in away_patterns):
                     team2_match = True
                     best_score = max(best_score, 100.0)
                     if method != MatchMethod.ALIAS:
