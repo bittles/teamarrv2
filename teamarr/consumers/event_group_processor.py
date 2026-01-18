@@ -1347,17 +1347,21 @@ class EventGroupProcessor:
 
         # Log filtering results
         filtered_total = (
-            result.filtered_stale + result.filtered_include +
-            result.filtered_exclude + result.filtered_not_event
+            result.filtered_stale + result.filtered_placeholder +
+            result.filtered_unsupported_sport + result.filtered_not_event +
+            result.filtered_include + result.filtered_exclude
         )
         if filtered_total > 0:
             logger.info(
                 "[FILTER] Group '%s': %d input → %d passed "
-                "(stale: -%d, not_event: -%d, include: -%d, exclude: -%d)",
+                "(stale: -%d, placeholder: -%d, unsupported_sport: -%d, not_event: -%d, "
+                "include: -%d, exclude: -%d)",
                 group.name,
                 result.total_input,
                 result.passed_count,
                 result.filtered_stale,
+                result.filtered_placeholder,
+                result.filtered_unsupported_sport,
                 result.filtered_not_event,
                 result.filtered_include,
                 result.filtered_exclude,
@@ -1487,7 +1491,6 @@ class EventGroupProcessor:
             custom_regex_date_enabled=group.custom_regex_date_enabled,
             custom_regex_time=group.custom_regex_time,
             custom_regex_time_enabled=group.custom_regex_time_enabled,
-            skip_builtin_filter=group.skip_builtin_filter,
             shared_events=self._shared_events,  # Reuse events across groups in same run
         )
 

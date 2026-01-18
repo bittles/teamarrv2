@@ -741,25 +741,25 @@ def classify_stream(
     stream_name: str,
     league_event_type: str | None = None,
     custom_regex: CustomRegexConfig | None = None,
-    skip_builtin_filter: bool = False,
 ) -> ClassifiedStream:
     """Classify a stream for matching strategy selection.
 
     Classification order:
     1. Normalize stream name
     1b. Apply custom date/time regex (if configured) to override extracted values
-    2. Check for placeholder patterns → PLACEHOLDER (skipped if skip_builtin_filter=True)
-    3. Check for event card keywords/type → EVENT_CARD
-    4. Try custom regex for team extraction (if configured) → TEAM_VS_TEAM
-    5. Check for game separator (vs/@/at) → TEAM_VS_TEAM
-    6. Default → PLACEHOLDER (can't classify)
+    2. Check for event card keywords/type → EVENT_CARD
+    3. Try custom regex for team extraction (if configured) → TEAM_VS_TEAM
+    4. Check for game separator (vs/@/at) → TEAM_VS_TEAM
+    5. Default → PLACEHOLDER (can't classify)
+
+    Note: Placeholder pattern detection is now handled by StreamFilter before
+    streams reach the classifier. This classifier focuses purely on categorizing
+    streams that have passed eligibility filtering.
 
     Args:
         stream_name: Raw stream name to classify
         league_event_type: Optional event_type from leagues table (e.g., "fight" for UFC)
         custom_regex: Optional custom regex configuration for team/date/time extraction
-        skip_builtin_filter: If True, skip placeholder detection to allow non-standard
-            stream formats through to custom regex and separator matching
 
     Returns:
         ClassifiedStream with category and extracted info
@@ -802,17 +802,8 @@ def classify_stream(
         league_hint = detect_league_hint(text)
         sport_hint = detect_sport_hint(text)
 
-        # Step 2: Check placeholder patterns (skip if skip_builtin_filter=True)
-        if not skip_builtin_filter and is_placeholder(text):
-            result = ClassifiedStream(
-                category=StreamCategory.PLACEHOLDER,
-                normalized=normalized,
-                league_hint=league_hint,
-                sport_hint=sport_hint,
-            )
-
-        # Step 3: Check for event card
-        if result is None and is_event_card(text, league_event_type):
+        # Step 2: Check for event card
+        if is_event_card(text, league_event_type):
             event_hint = extract_event_card_hint(text)
             result = ClassifiedStream(
                 category=StreamCategory.EVENT_CARD,
@@ -822,7 +813,7 @@ def classify_stream(
                 sport_hint=sport_hint,
             )
 
-        # Step 4: Try custom regex for team extraction (if configured)
+        # Step 3: Try custom regex for team extraction (if configured)
         # Uses ORIGINAL stream name (not normalized) for intuitive pattern matching
         if result is None and custom_regex and custom_regex.teams_enabled:
             team1, team2, success = extract_teams_with_custom_regex(stream_name, custom_regex)
@@ -838,7 +829,7 @@ def classify_stream(
                     custom_regex_used=True,
                 )
 
-        # Step 5: Check for game separator (builtin fallback)
+        # Step 4: Check for game separator (builtin fallback)
         if result is None:
             separator, sep_position = find_game_separator(text)
             if separator:
@@ -856,7 +847,7 @@ def classify_stream(
                         sport_hint=sport_hint,
                     )
 
-        # Step 6: Default to placeholder if we can't classify
+        # Step 5: Default to placeholder if we can't classify
         if result is None:
             result = ClassifiedStream(
                 category=StreamCategory.PLACEHOLDER,

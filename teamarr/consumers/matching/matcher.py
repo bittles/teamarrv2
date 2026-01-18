@@ -54,18 +54,6 @@ from teamarr.utilities.event_status import is_event_final
 
 logger = logging.getLogger(__name__)
 
-# Sports that can be detected but are not currently supported by Teamarr
-# These sports don't have team-based schedules we can match against
-UNSUPPORTED_SPORTS = frozenset([
-    "Swimming",
-    "Diving",
-    "Gymnastics",
-    "Wrestling",
-    "Track and Field",
-    "Tennis",
-    "Golf",
-])
-
 
 @dataclass
 class MatchedStreamResult:
@@ -175,7 +163,6 @@ class StreamMatcher:
         custom_regex_date_enabled: bool = False,
         custom_regex_time: str | None = None,
         custom_regex_time_enabled: bool = False,
-        skip_builtin_filter: bool = False,
         days_ahead: int | None = None,
         shared_events: dict[str, list[Event]] | None = None,
     ):
@@ -197,7 +184,6 @@ class StreamMatcher:
             custom_regex_date_enabled: Whether custom regex for date is enabled
             custom_regex_time: Custom regex pattern for extracting time
             custom_regex_time_enabled: Whether custom regex for time is enabled
-            skip_builtin_filter: Skip placeholder detection to allow non-standard formats
             days_ahead: Days to look ahead for events (if None, loaded from settings)
             shared_events: Shared events cache dict (keyed by "league:date") to reuse
                            across multiple matchers in a single generation run
@@ -234,9 +220,6 @@ class StreamMatcher:
             time_pattern=custom_regex_time,
             time_enabled=custom_regex_time_enabled,
         ) if has_custom_regex else None
-
-        # Skip builtin placeholder detection
-        self._skip_builtin_filter = skip_builtin_filter
 
         # Initialize cache
         self._cache = StreamMatchCache(db_factory)
@@ -442,26 +425,14 @@ class StreamMatcher:
         league_event_type = self._get_dominant_event_type()
 
         classified = classify_stream(
-            stream_name, league_event_type, self._custom_regex, self._skip_builtin_filter
+            stream_name, league_event_type, self._custom_regex
         )
 
-        # Step 2: Filter unsupported sports (swimming, diving, gymnastics, etc.)
-        if classified.sport_hint and classified.sport_hint in UNSUPPORTED_SPORTS:
-            logger.debug(
-                "[FILTERED] Unsupported sport '%s': %s",
-                classified.sport_hint,
-                stream_name[:60],
-            )
-            return MatchedStreamResult(
-                stream_name=stream_name,
-                stream_id=stream_id,
-                matched=False,
-                included=False,
-                category=classified.category,
-                exclusion_reason=f"sport_not_supported:{classified.sport_hint}",
-            )
-
-        # Step 3: Handle placeholders
+        # Step 2: Handle placeholders (streams that couldn't be classified)
+        # Note: Placeholder pattern detection and unsupported sports filtering
+        # is now handled by StreamFilter before streams reach the matcher.
+        # This handles streams that passed filtering but still can't be classified
+        # (e.g., no separator found, no custom regex match).
         if classified.category == StreamCategory.PLACEHOLDER:
             return MatchedStreamResult(
                 stream_name=stream_name,
@@ -469,10 +440,10 @@ class StreamMatcher:
                 matched=False,
                 included=False,
                 category=StreamCategory.PLACEHOLDER,
-                exclusion_reason="placeholder",
+                exclusion_reason="unclassifiable",
             )
 
-        # Step 4: Route to appropriate matcher based on category
+        # Step 3: Route to appropriate matcher based on category
         if classified.category == StreamCategory.EVENT_CARD:
             outcome = self._match_event_card(
                 classified=classified,
@@ -486,7 +457,7 @@ class StreamMatcher:
                 target_date=target_date,
             )
 
-        # Step 5: Convert outcome to result
+        # Step 4: Convert outcome to result
         return self._outcome_to_result(
             outcome=outcome,
             stream_id=stream_id,
