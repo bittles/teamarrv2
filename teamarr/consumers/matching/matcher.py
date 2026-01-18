@@ -175,6 +175,7 @@ class StreamMatcher:
         custom_regex_date_enabled: bool = False,
         custom_regex_time: str | None = None,
         custom_regex_time_enabled: bool = False,
+        skip_builtin_filter: bool = False,
         days_ahead: int | None = None,
         shared_events: dict[str, list[Event]] | None = None,
     ):
@@ -196,6 +197,7 @@ class StreamMatcher:
             custom_regex_date_enabled: Whether custom regex for date is enabled
             custom_regex_time: Custom regex pattern for extracting time
             custom_regex_time_enabled: Whether custom regex for time is enabled
+            skip_builtin_filter: Skip placeholder detection to allow non-standard formats
             days_ahead: Days to look ahead for events (if None, loaded from settings)
             shared_events: Shared events cache dict (keyed by "league:date") to reuse
                            across multiple matchers in a single generation run
@@ -232,6 +234,9 @@ class StreamMatcher:
             time_pattern=custom_regex_time,
             time_enabled=custom_regex_time_enabled,
         ) if has_custom_regex else None
+
+        # Skip builtin placeholder detection
+        self._skip_builtin_filter = skip_builtin_filter
 
         # Initialize cache
         self._cache = StreamMatchCache(db_factory)
@@ -436,7 +441,9 @@ class StreamMatcher:
         # Determine event type from configured leagues
         league_event_type = self._get_dominant_event_type()
 
-        classified = classify_stream(stream_name, league_event_type, self._custom_regex)
+        classified = classify_stream(
+            stream_name, league_event_type, self._custom_regex, self._skip_builtin_filter
+        )
 
         # Step 2: Filter unsupported sports (swimming, diving, gymnastics, etc.)
         if classified.sport_hint and classified.sport_hint in UNSUPPORTED_SPORTS:

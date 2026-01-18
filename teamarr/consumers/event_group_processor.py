@@ -1487,6 +1487,7 @@ class EventGroupProcessor:
             custom_regex_date_enabled=group.custom_regex_date_enabled,
             custom_regex_time=group.custom_regex_time,
             custom_regex_time_enabled=group.custom_regex_time_enabled,
+            skip_builtin_filter=group.skip_builtin_filter,
             shared_events=self._shared_events,  # Reuse events across groups in same run
         )
 
