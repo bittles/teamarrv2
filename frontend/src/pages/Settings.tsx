@@ -190,16 +190,22 @@ export function Settings() {
   })
   const [newKeyword, setNewKeyword] = useState({ keywords: "", behavior: "consolidate" })
 
+  // Local state for channel range inputs (allows free typing)
+  const [channelRangeStart, setChannelRangeStart] = useState("")
+  const [channelRangeEnd, setChannelRangeEnd] = useState("")
+
   // Selected profile IDs for display (converted from API format)
   const [selectedProfileIds, setSelectedProfileIds] = useState<(number | string)[]>([])
 
   // Backup & Restore state
   const [isRestoring, setIsRestoring] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const initializedRef = useRef(false)
 
-  // Initialize local state from settings
+  // Initialize local state from settings (only once on initial load)
   useEffect(() => {
-    if (settings) {
+    if (settings && !initializedRef.current) {
+      initializedRef.current = true
       setDispatcharr({
         enabled: settings.dispatcharr.enabled,
         url: settings.dispatcharr.url,
@@ -234,6 +240,16 @@ export function Settings() {
       setChannelNumbering(channelNumberingData)
     }
   }, [channelNumberingData])
+
+  // Sync channel range inputs from lifecycle on initial load only
+  const channelRangeInitializedRef = useRef(false)
+  useEffect(() => {
+    if (lifecycle && !channelRangeInitializedRef.current) {
+      channelRangeInitializedRef.current = true
+      setChannelRangeStart(lifecycle.channel_range_start?.toString() ?? "101")
+      setChannelRangeEnd(lifecycle.channel_range_end?.toString() ?? "")
+    }
+  }, [lifecycle])
 
   // Convert API profile IDs to display IDs when profiles are loaded
   useEffect(() => {
@@ -360,7 +376,14 @@ export function Settings() {
 
   const handleSaveChannelNumbering = async () => {
     try {
-      await updateChannelNumbering.mutateAsync(channelNumbering)
+      // Save both channel numbering AND lifecycle settings (channel range is in lifecycle)
+      const promises: Promise<unknown>[] = [
+        updateChannelNumbering.mutateAsync(channelNumbering),
+      ]
+      if (lifecycle) {
+        promises.push(updateLifecycle.mutateAsync(lifecycle))
+      }
+      await Promise.all(promises)
       toast.success("Channel numbering settings saved")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save")
@@ -1056,14 +1079,19 @@ export function Settings() {
                 id="ch-range-start-num"
                 type="number"
                 min={1}
-                value={lifecycle?.channel_range_start ?? 101}
-                onChange={(e) =>
-                  lifecycle &&
-                  setLifecycle({
-                    ...lifecycle,
-                    channel_range_start: parseInt(e.target.value) || 101,
-                  })
-                }
+                value={channelRangeStart}
+                onChange={(e) => setChannelRangeStart(e.target.value)}
+                onBlur={(e) => {
+                  if (!lifecycle) return
+                  const val = parseInt(e.target.value)
+                  if (!isNaN(val) && val >= 1) {
+                    setChannelRangeStart(val.toString())
+                    setLifecycle({ ...lifecycle, channel_range_start: val })
+                  } else {
+                    // Reset to current lifecycle value if invalid
+                    setChannelRangeStart(lifecycle.channel_range_start?.toString() ?? "101")
+                  }
+                }}
               />
               <p className="text-xs text-muted-foreground">
                 First channel number for auto-assigned channels
@@ -1075,14 +1103,23 @@ export function Settings() {
                 id="ch-range-end-num"
                 type="number"
                 min={1}
-                value={lifecycle?.channel_range_end ?? ""}
-                onChange={(e) =>
-                  lifecycle &&
-                  setLifecycle({
-                    ...lifecycle,
-                    channel_range_end: e.target.value ? parseInt(e.target.value) : null,
-                  })
-                }
+                value={channelRangeEnd}
+                onChange={(e) => setChannelRangeEnd(e.target.value)}
+                onBlur={(e) => {
+                  if (!lifecycle) return
+                  if (e.target.value === "") {
+                    setChannelRangeEnd("")
+                    setLifecycle({ ...lifecycle, channel_range_end: null })
+                  } else {
+                    const val = parseInt(e.target.value)
+                    if (!isNaN(val) && val >= 1) {
+                      setChannelRangeEnd(val.toString())
+                      setLifecycle({ ...lifecycle, channel_range_end: val })
+                    } else {
+                      setChannelRangeEnd(lifecycle.channel_range_end?.toString() ?? "")
+                    }
+                  }
+                }}
                 placeholder="No limit"
               />
               <p className="text-xs text-muted-foreground">
@@ -1309,9 +1346,9 @@ export function Settings() {
           <div className="pt-4 border-t">
             <Button
               onClick={handleSaveChannelNumbering}
-              disabled={updateChannelNumbering.isPending}
+              disabled={updateChannelNumbering.isPending || updateLifecycle.isPending}
             >
-              {updateChannelNumbering.isPending ? (
+              {(updateChannelNumbering.isPending || updateLifecycle.isPending) ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               ) : (
                 <Save className="h-4 w-4 mr-1" />

@@ -118,7 +118,7 @@ def update_lifecycle_settings(
     channel_create_timing: str | None = None,
     channel_delete_timing: str | None = None,
     channel_range_start: int | None = None,
-    channel_range_end: int | None = None,
+    channel_range_end: int | None | object = _NOT_PROVIDED,
 ) -> bool:
     """Update channel lifecycle settings.
 
@@ -127,7 +127,7 @@ def update_lifecycle_settings(
         channel_create_timing: When to create channels
         channel_delete_timing: When to delete channels
         channel_range_start: First auto-assigned channel number
-        channel_range_end: Last auto-assigned channel number
+        channel_range_end: Last auto-assigned channel number (None = no limit)
 
     Returns:
         True if updated
@@ -144,9 +144,10 @@ def update_lifecycle_settings(
     if channel_range_start is not None:
         updates.append("channel_range_start = ?")
         values.append(channel_range_start)
-    if channel_range_end is not None:
+    # channel_range_end: _NOT_PROVIDED = don't update, None = no limit, int = set value
+    if channel_range_end is not _NOT_PROVIDED:
         updates.append("channel_range_end = ?")
-        values.append(channel_range_end)
+        values.append(channel_range_end)  # None becomes SQL NULL
 
     if not updates:
         return False
