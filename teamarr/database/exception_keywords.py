@@ -17,19 +17,25 @@ ExceptionBehavior = Literal["consolidate", "separate", "ignore"]
 
 @dataclass
 class ExceptionKeyword:
-    """Consolidation exception keyword configuration."""
+    """Consolidation exception keyword configuration.
+
+    Attributes:
+        label: Primary identifier used in channel names and {exception_keyword} template variable
+        match_terms: Comma-separated phrases/words to match in stream names
+        behavior: How to handle matched streams (consolidate/separate/ignore)
+    """
 
     id: int | None = None
-    keywords: str = ""  # Comma-separated keywords
+    label: str = ""  # Used for channel naming and {exception_keyword} variable
+    match_terms: str = ""  # Comma-separated terms to match
     behavior: ExceptionBehavior = "consolidate"
-    display_name: str | None = None
     enabled: bool = True
     created_at: datetime | None = None
 
     @property
-    def keyword_list(self) -> list[str]:
-        """Get keywords as a list."""
-        return [k.strip() for k in self.keywords.split(",") if k.strip()]
+    def match_term_list(self) -> list[str]:
+        """Get match terms as a list."""
+        return [k.strip() for k in self.match_terms.split(",") if k.strip()]
 
 
 def _row_to_keyword(row) -> ExceptionKeyword:
@@ -43,9 +49,9 @@ def _row_to_keyword(row) -> ExceptionKeyword:
 
     return ExceptionKeyword(
         id=row["id"],
-        keywords=row["keywords"] or "",
+        label=row["label"] or "",
+        match_terms=row["match_terms"] or "",
         behavior=row["behavior"] or "consolidate",
-        display_name=row["display_name"],
         enabled=bool(row["enabled"]),
         created_at=created_at,
     )
@@ -68,12 +74,12 @@ def get_all_keywords(conn: Connection, include_disabled: bool = False) -> list[E
     """
     if include_disabled:
         cursor = conn.execute(
-            "SELECT * FROM consolidation_exception_keywords ORDER BY display_name"
+            "SELECT * FROM consolidation_exception_keywords ORDER BY label"
         )
     else:
         cursor = conn.execute(
             """SELECT * FROM consolidation_exception_keywords
-               WHERE enabled = 1 ORDER BY display_name"""
+               WHERE enabled = 1 ORDER BY label"""
         )
 
     return [_row_to_keyword(row) for row in cursor.fetchall()]
@@ -111,7 +117,7 @@ def get_keywords_by_behavior(
     cursor = conn.execute(
         """SELECT * FROM consolidation_exception_keywords
            WHERE behavior = ? AND enabled = 1
-           ORDER BY display_name""",
+           ORDER BY label""",
         (behavior,),
     )
     return [_row_to_keyword(row) for row in cursor.fetchall()]
@@ -126,12 +132,12 @@ def get_all_keyword_patterns(conn: Connection) -> list[str]:
         conn: Database connection
 
     Returns:
-        List of individual keyword strings (lowercased)
+        List of individual match term strings (lowercased)
     """
     keywords = get_all_keywords(conn, include_disabled=False)
     patterns = []
     for kw in keywords:
-        patterns.extend([k.lower() for k in kw.keyword_list])
+        patterns.extend([k.lower() for k in kw.match_term_list])
     return patterns
 
 
@@ -142,18 +148,18 @@ def get_all_keyword_patterns(conn: Connection) -> list[str]:
 
 def create_keyword(
     conn: Connection,
-    keywords: str,
+    label: str,
+    match_terms: str,
     behavior: ExceptionBehavior = "consolidate",
-    display_name: str | None = None,
     enabled: bool = True,
 ) -> int:
     """Create a new exception keyword entry.
 
     Args:
         conn: Database connection
-        keywords: Comma-separated keyword variants
+        label: Label for channel naming and {exception_keyword} variable
+        match_terms: Comma-separated terms to match in stream names
         behavior: How to handle matched streams
-        display_name: Display name for UI
         enabled: Whether the keyword is active
 
     Returns:
@@ -161,13 +167,13 @@ def create_keyword(
     """
     cursor = conn.execute(
         """INSERT INTO consolidation_exception_keywords
-           (keywords, behavior, display_name, enabled)
+           (label, match_terms, behavior, enabled)
            VALUES (?, ?, ?, ?)""",
-        (keywords, behavior, display_name, int(enabled)),
+        (label, match_terms, behavior, int(enabled)),
     )
     conn.commit()
     keyword_id = cursor.lastrowid
-    logger.info("[CREATED] Exception keyword id=%d keywords=%s", keyword_id, keywords)
+    logger.info("[CREATED] Exception keyword id=%d label=%s", keyword_id, label)
     return keyword_id
 
 
@@ -179,11 +185,10 @@ def create_keyword(
 def update_keyword(
     conn: Connection,
     keyword_id: int,
-    keywords: str | None = None,
+    label: str | None = None,
+    match_terms: str | None = None,
     behavior: ExceptionBehavior | None = None,
-    display_name: str | None = None,
     enabled: bool | None = None,
-    clear_display_name: bool = False,
 ) -> bool:
     """Update an exception keyword.
 
@@ -192,11 +197,10 @@ def update_keyword(
     Args:
         conn: Database connection
         keyword_id: Keyword ID to update
-        keywords: New keywords string
+        label: New label for channel naming
+        match_terms: New match terms string
         behavior: New behavior
-        display_name: New display name
         enabled: New enabled status
-        clear_display_name: Set display_name to NULL
 
     Returns:
         True if updated
@@ -204,19 +208,17 @@ def update_keyword(
     updates = []
     values = []
 
-    if keywords is not None:
-        updates.append("keywords = ?")
-        values.append(keywords)
+    if label is not None:
+        updates.append("label = ?")
+        values.append(label)
+
+    if match_terms is not None:
+        updates.append("match_terms = ?")
+        values.append(match_terms)
 
     if behavior is not None:
         updates.append("behavior = ?")
         values.append(behavior)
-
-    if display_name is not None:
-        updates.append("display_name = ?")
-        values.append(display_name)
-    elif clear_display_name:
-        updates.append("display_name = NULL")
 
     if enabled is not None:
         updates.append("enabled = ?")

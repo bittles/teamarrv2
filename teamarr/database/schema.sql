@@ -1076,31 +1076,32 @@ CREATE TABLE IF NOT EXISTS consolidation_exception_keywords (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    -- Keyword variants (comma-separated)
-    -- e.g., "Spanish, En Español, (ESP), Español"
-    keywords TEXT NOT NULL UNIQUE,
+    -- Label (primary identifier, used in channel names and {exception_keyword} template variable)
+    -- e.g., "Spanish", "Manningcast"
+    label TEXT NOT NULL UNIQUE,
+
+    -- Match terms (comma-separated phrases/words to match in stream names)
+    -- e.g., "Spanish, En Español, (ESP), Español" or "Peyton and Eli, Manningcast, Manning"
+    match_terms TEXT NOT NULL,
 
     -- Behavior when keyword matched
     behavior TEXT NOT NULL DEFAULT 'consolidate'
         CHECK(behavior IN ('consolidate', 'separate', 'ignore')),
-
-    -- Display name for UI
-    display_name TEXT,
 
     -- Status
     enabled BOOLEAN DEFAULT 1
 );
 
 -- Seed default language keywords
-INSERT OR IGNORE INTO consolidation_exception_keywords (keywords, display_name, behavior) VALUES
-    ('Spanish, En Español, (ESP), Español', 'Spanish', 'consolidate'),
-    ('French, En Français, (FRA), Français', 'French', 'consolidate'),
-    ('German, (GER), Deutsch', 'German', 'consolidate'),
-    ('Portuguese, (POR), Português', 'Portuguese', 'consolidate'),
-    ('Italian, (ITA), Italiano', 'Italian', 'consolidate'),
-    ('Japanese, (JPN), 日本語', 'Japanese', 'consolidate'),
-    ('Korean, (KOR), 한국어', 'Korean', 'consolidate'),
-    ('Chinese, (CHN), (CHI), 中文', 'Chinese', 'consolidate');
+INSERT OR IGNORE INTO consolidation_exception_keywords (label, match_terms, behavior) VALUES
+    ('Spanish', 'Spanish, En Español, (ESP), Español', 'consolidate'),
+    ('French', 'French, En Français, (FRA), Français', 'consolidate'),
+    ('German', 'German, (GER), Deutsch', 'consolidate'),
+    ('Portuguese', 'Portuguese, (POR), Português', 'consolidate'),
+    ('Italian', 'Italian, (ITA), Italiano', 'consolidate'),
+    ('Japanese', 'Japanese, (JPN), 日本語', 'consolidate'),
+    ('Korean', 'Korean, (KOR), 한국어', 'consolidate'),
+    ('Chinese', 'Chinese, (CHN), (CHI), 中文', 'consolidate');
 
 CREATE INDEX IF NOT EXISTS idx_exception_keywords_enabled ON consolidation_exception_keywords(enabled);
 CREATE INDEX IF NOT EXISTS idx_exception_keywords_behavior ON consolidation_exception_keywords(behavior);

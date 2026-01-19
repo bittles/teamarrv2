@@ -237,7 +237,7 @@ export function useCreateExceptionKeyword() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (data: { keywords: string; behavior: string; display_name?: string; enabled?: boolean }) =>
+    mutationFn: (data: { label: string; match_terms: string; behavior: string; enabled?: boolean }) =>
       createExceptionKeyword(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keywords"] })
@@ -249,7 +249,7 @@ export function useUpdateExceptionKeyword() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ keywords: string; behavior: string; display_name: string | null; enabled: boolean }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ label: string; match_terms: string; behavior: string; enabled: boolean }> }) =>
       updateExceptionKeyword(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keywords"] })

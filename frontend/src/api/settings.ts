@@ -100,10 +100,10 @@ export interface ChannelNumberingSettingsUpdate {
 
 export interface ExceptionKeyword {
   id: number
-  keywords: string
-  keyword_list: string[]
+  label: string
+  match_terms: string
+  match_term_list: string[]
   behavior: "consolidate" | "separate" | "ignore"
-  display_name: string | null
   enabled: boolean
   created_at: string | null
 }
@@ -280,9 +280,9 @@ export async function getExceptionKeywords(
 }
 
 export async function createExceptionKeyword(data: {
-  keywords: string
+  label: string
+  match_terms: string
   behavior: string
-  display_name?: string
   enabled?: boolean
 }): Promise<ExceptionKeyword> {
   return api.post("/keywords", data)
@@ -291,9 +291,9 @@ export async function createExceptionKeyword(data: {
 export async function updateExceptionKeyword(
   id: number,
   data: Partial<{
-    keywords: string
+    label: string
+    match_terms: string
     behavior: string
-    display_name: string | null
     enabled: boolean
   }>
 ): Promise<ExceptionKeyword> {

@@ -293,3 +293,28 @@ def extract_gracenote_category(ctx: TemplateContext, game_ctx: GameContext | Non
 
     service = get_league_mapping_service()
     return service.get_gracenote_category(ctx.team_config.league)
+
+
+@register_variable(
+    name="exception_keyword",
+    category=Category.IDENTITY,
+    suffix_rules=SuffixRules.BASE_ONLY,
+    description="Exception keyword label (e.g., 'Spanish', '4K', 'Manningcast') - set at channel creation",
+)
+def extract_exception_keyword(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
+    """Return exception keyword label for channel naming.
+
+    This variable is special - it's populated via extra_vars at channel creation
+    time, not extracted from event data. The extractor returns empty string
+    as a placeholder; actual values are injected by the lifecycle service.
+
+    Used in channel name templates like:
+        "{away_team} @ {home_team} ({exception_keyword})"
+        "{exception_keyword}: {matchup}"
+
+    Examples:
+        Spanish, French, 4K, Manningcast
+    """
+    # Value is injected via extra_vars in lifecycle service
+    # This extractor exists for validation and UI display only
+    return ""

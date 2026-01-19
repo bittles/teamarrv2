@@ -253,6 +253,16 @@ SAMPLE_DATA: dict[str, dict[str, str]] = {
         "NCAAF": "College Football",
         "Soccer": "Premier League Soccer",
     },
+    # Exception keyword - channel-specific variable
+    "exception_keyword": {
+        "NBA": "4K",
+        "NFL": "4K",
+        "MLB": "4K",
+        "NHL": "4K",
+        "NCAAM": "4K",
+        "NCAAF": "4K",
+        "Soccer": "4K",
+    },
     # ==========================================================================
     # HOME_AWAY - Positional team variables
     # ==========================================================================

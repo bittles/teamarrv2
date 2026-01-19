@@ -125,6 +125,10 @@ def init_db(db_path: Path | str | None = None) -> None:
             # (schema.sql INSERT OR REPLACE references these columns)
             _add_fallback_columns_if_needed(conn)
 
+            # Pre-migration: rename exception keywords columns before schema.sql runs
+            # (schema.sql INSERT OR IGNORE references label and match_terms columns)
+            _migrate_exception_keywords_columns(conn)
+
             # Apply schema (creates tables if missing, INSERT OR REPLACE updates seed data)
             conn.executescript(schema_sql)
             # Run remaining migrations for existing databases
@@ -321,6 +325,93 @@ def _add_fallback_columns_if_needed(conn: sqlite3.Connection) -> None:
     if "fallback_league_id" not in columns:
         conn.execute("ALTER TABLE leagues ADD COLUMN fallback_league_id TEXT")
         logger.info("[MIGRATE] Added leagues.fallback_league_id column")
+
+
+def _migrate_exception_keywords_columns(conn: sqlite3.Connection) -> None:
+    """Migrate exception keywords table: keywords -> match_terms, display_name -> label.
+
+    MUST run before schema.sql because INSERT OR IGNORE references the new column names.
+    This pre-migration recreates the table with new column names and migrates data.
+    """
+    # Check if table exists
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='consolidation_exception_keywords'"
+    )
+    if not cursor.fetchone():
+        return  # Fresh database, schema.sql will create table with correct columns
+
+    # Check if migration needed (old columns exist)
+    cursor = conn.execute("PRAGMA table_info(consolidation_exception_keywords)")
+    columns = {row["name"] for row in cursor.fetchall()}
+
+    if "label" in columns and "match_terms" in columns:
+        return  # Already migrated
+
+    if "keywords" not in columns:
+        return  # Unknown schema, skip
+
+    logger.info("[PRE-MIGRATE] Migrating exception keywords: keywords -> match_terms, display_name -> label")
+
+    # Get existing data
+    cursor = conn.execute("""
+        SELECT id, created_at, keywords, behavior, display_name, enabled
+        FROM consolidation_exception_keywords
+    """)
+    existing_rows = cursor.fetchall()
+
+    # Drop old table
+    conn.execute("DROP TABLE consolidation_exception_keywords")
+
+    # Create new table with updated schema
+    conn.execute("""
+        CREATE TABLE consolidation_exception_keywords (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            label TEXT NOT NULL UNIQUE,
+            match_terms TEXT NOT NULL,
+            behavior TEXT NOT NULL DEFAULT 'consolidate'
+                CHECK(behavior IN ('consolidate', 'separate', 'ignore')),
+            enabled BOOLEAN DEFAULT 1
+        )
+    """)
+
+    # Migrate data - use display_name as label if set, otherwise first keyword
+    for row in existing_rows:
+        keywords = row["keywords"] or ""
+        display_name = row["display_name"]
+
+        # Determine label: use display_name if set, otherwise first keyword
+        if display_name:
+            label = display_name
+        else:
+            first_keyword = keywords.split(",")[0].strip() if keywords else "Unknown"
+            label = first_keyword
+
+        conn.execute(
+            """INSERT INTO consolidation_exception_keywords
+               (id, created_at, label, match_terms, behavior, enabled)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                row["id"],
+                row["created_at"],
+                label,
+                keywords,
+                row["behavior"],
+                row["enabled"],
+            ),
+        )
+
+    # Recreate indexes
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_exception_keywords_enabled
+        ON consolidation_exception_keywords(enabled)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_exception_keywords_behavior
+        ON consolidation_exception_keywords(behavior)
+    """)
+
+    logger.info("[PRE-MIGRATE] Migrated %d exception keywords", len(existing_rows))
 
 
 def _seed_tsdb_cache_if_needed(conn: sqlite3.Connection) -> None:
@@ -820,6 +911,114 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE settings SET schema_version = 34 WHERE id = 1")
         logger.info("[MIGRATE] Schema upgraded to version 34 (team_filter_enabled)")
         current_version = 34
+
+    # Version 35: Restructure exception keywords - label + match_terms
+    # - Rename 'keywords' -> 'match_terms' (the terms to match in stream names)
+    # - Rename 'display_name' -> 'label' (used for channel naming and {exception_keyword} variable)
+    # - Make label required and unique (was keywords that was unique)
+    # - For existing rows: use display_name as label if set, otherwise use first keyword
+    if current_version < 35:
+        _migrate_to_v35(conn)
+        conn.execute("UPDATE settings SET schema_version = 35 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 35 (exception keywords label + match_terms)")
+        current_version = 35
+
+
+def _migrate_to_v35(conn: sqlite3.Connection) -> None:
+    """Restructure exception keywords table: keywords -> match_terms, display_name -> label.
+
+    This migration:
+    1. Renames 'keywords' column to 'match_terms'
+    2. Renames 'display_name' column to 'label' and makes it required/unique
+    3. For existing rows without display_name, uses the first keyword as the label
+    """
+    # Check if old columns exist (migration already done if not)
+    cursor = conn.execute("PRAGMA table_info(consolidation_exception_keywords)")
+    columns = {row["name"] for row in cursor.fetchall()}
+
+    if "label" in columns and "match_terms" in columns:
+        logger.debug("[MIGRATE] Exception keywords already migrated, skipping")
+        return
+
+    if "keywords" not in columns:
+        logger.debug("[MIGRATE] Exception keywords table has new schema, skipping migration")
+        return
+
+    logger.info("[MIGRATE] Migrating exception keywords: keywords -> match_terms, display_name -> label")
+
+    # Disable foreign keys for table recreation
+    conn.execute("PRAGMA foreign_keys = OFF")
+
+    try:
+        # Get existing data
+        cursor = conn.execute("""
+            SELECT id, created_at, keywords, behavior, display_name, enabled
+            FROM consolidation_exception_keywords
+        """)
+        existing_rows = cursor.fetchall()
+
+        # Create new table with updated schema
+        conn.execute("""
+            CREATE TABLE consolidation_exception_keywords_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                label TEXT NOT NULL UNIQUE,
+                match_terms TEXT NOT NULL,
+                behavior TEXT NOT NULL DEFAULT 'consolidate'
+                    CHECK(behavior IN ('consolidate', 'separate', 'ignore')),
+                enabled BOOLEAN DEFAULT 1
+            )
+        """)
+
+        # Migrate data - use display_name as label if set, otherwise first keyword
+        for row in existing_rows:
+            keywords = row["keywords"] or ""
+            display_name = row["display_name"]
+
+            # Determine label: use display_name if set, otherwise first keyword
+            if display_name:
+                label = display_name
+            else:
+                # Extract first keyword from comma-separated list
+                first_keyword = keywords.split(",")[0].strip() if keywords else "Unknown"
+                label = first_keyword
+
+            conn.execute(
+                """INSERT INTO consolidation_exception_keywords_new
+                   (id, created_at, label, match_terms, behavior, enabled)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    row["id"],
+                    row["created_at"],
+                    label,
+                    keywords,
+                    row["behavior"],
+                    row["enabled"],
+                ),
+            )
+
+        # Drop old table and rename new one
+        conn.execute("DROP TABLE consolidation_exception_keywords")
+        conn.execute(
+            "ALTER TABLE consolidation_exception_keywords_new "
+            "RENAME TO consolidation_exception_keywords"
+        )
+
+        # Recreate indexes
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exception_keywords_enabled
+            ON consolidation_exception_keywords(enabled)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exception_keywords_behavior
+            ON consolidation_exception_keywords(behavior)
+        """)
+
+        conn.commit()
+        logger.info("[MIGRATE] Successfully migrated %d exception keywords", len(existing_rows))
+
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _migrate_to_v33(conn: sqlite3.Connection) -> None:

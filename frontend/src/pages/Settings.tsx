@@ -191,8 +191,8 @@ export function Settings() {
     sorting_scope: "per_group",
     sort_by: "time",
   })
-  const [newKeyword, setNewKeyword] = useState({ keywords: "", behavior: "consolidate" })
-  const [editingKeyword, setEditingKeyword] = useState<{ id: number; keywords: string } | null>(null)
+  const [newKeyword, setNewKeyword] = useState({ label: "", match_terms: "", behavior: "consolidate" })
+  const [editingKeyword, setEditingKeyword] = useState<{ id: number; label: string; match_terms: string } | null>(null)
 
   // Local state for channel range inputs (allows free typing)
   const [channelRangeStart, setChannelRangeStart] = useState("")
@@ -395,13 +395,17 @@ export function Settings() {
   }
 
   const handleAddKeyword = async () => {
-    if (!newKeyword.keywords.trim()) {
-      toast.error("Please enter at least one keyword")
+    if (!newKeyword.label.trim()) {
+      toast.error("Please enter a label")
+      return
+    }
+    if (!newKeyword.match_terms.trim()) {
+      toast.error("Please enter at least one match term")
       return
     }
     try {
       await createKeyword.mutateAsync(newKeyword)
-      setNewKeyword({ keywords: "", behavior: "consolidate" })
+      setNewKeyword({ label: "", match_terms: "", behavior: "consolidate" })
       toast.success("Keyword added")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add keyword")
@@ -418,15 +422,19 @@ export function Settings() {
   }
 
   const handleSaveKeywordEdit = async () => {
-    if (!editingKeyword || !editingKeyword.keywords.trim()) {
-      toast.error("Keywords cannot be empty")
+    if (!editingKeyword || !editingKeyword.label.trim()) {
+      toast.error("Label cannot be empty")
+      return
+    }
+    if (!editingKeyword.match_terms.trim()) {
+      toast.error("Match terms cannot be empty")
       return
     }
     try {
       await fetch(`/api/v1/keywords/${editingKeyword.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywords: editingKeyword.keywords }),
+        body: JSON.stringify({ label: editingKeyword.label, match_terms: editingKeyword.match_terms }),
       })
       keywordsQuery.refetch()
       setEditingKeyword(null)
@@ -790,7 +798,7 @@ export function Settings() {
         <CardHeader>
           <CardTitle>Exception Keywords</CardTitle>
           <CardDescription>
-            Streams matching these keywords get special handling during consolidation
+            Streams matching these terms get special handling during consolidation. The label is used for channel naming and the {"{exception_keyword}"} template variable.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -798,9 +806,10 @@ export function Settings() {
             <table className="w-full text-sm">
               <thead className="bg-muted">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">Keywords (comma-separated)</th>
+                  <th className="px-3 py-2 text-left font-medium w-32">Label</th>
+                  <th className="px-3 py-2 text-left font-medium">Match Terms (comma-separated)</th>
                   <th className="px-3 py-2 text-left font-medium w-40">Behavior</th>
-                  <th className="px-3 py-2 w-12"></th>
+                  <th className="px-3 py-2 w-20"></th>
                 </tr>
               </thead>
               <tbody>
@@ -809,17 +818,34 @@ export function Settings() {
                     <td className="px-3 py-2">
                       {editingKeyword?.id === kw.id ? (
                         <Input
-                          value={editingKeyword.keywords}
-                          onChange={(e) => setEditingKeyword({ ...editingKeyword, keywords: e.target.value })}
+                          value={editingKeyword.label}
+                          onChange={(e) => setEditingKeyword({ ...editingKeyword, label: e.target.value })}
                           className="h-8"
                           autoFocus
+                          placeholder="Label"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") handleSaveKeywordEdit()
                             if (e.key === "Escape") setEditingKeyword(null)
                           }}
                         />
                       ) : (
-                        kw.keywords
+                        <span className="font-medium">{kw.label}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {editingKeyword?.id === kw.id ? (
+                        <Input
+                          value={editingKeyword.match_terms}
+                          onChange={(e) => setEditingKeyword({ ...editingKeyword, match_terms: e.target.value })}
+                          className="h-8"
+                          placeholder="Terms to match"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveKeywordEdit()
+                            if (e.key === "Escape") setEditingKeyword(null)
+                          }}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">{kw.match_terms}</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
@@ -873,7 +899,7 @@ export function Settings() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => setEditingKeyword({ id: kw.id, keywords: kw.keywords })}
+                              onClick={() => setEditingKeyword({ id: kw.id, label: kw.label, match_terms: kw.match_terms })}
                               title="Edit"
                             >
                               <Pencil className="h-4 w-4 text-muted-foreground" />
@@ -895,7 +921,7 @@ export function Settings() {
                 ))}
                 {(!keywordsQuery.data?.keywords || keywordsQuery.data.keywords.length === 0) && (
                   <tr>
-                    <td colSpan={3} className="px-3 py-4 text-center text-muted-foreground">
+                    <td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">
                       No exception keywords defined
                     </td>
                   </tr>
@@ -906,9 +932,15 @@ export function Settings() {
 
           <div className="flex gap-2">
             <Input
-              placeholder="e.g., Spanish, En Español, ESP"
-              value={newKeyword.keywords}
-              onChange={(e) => setNewKeyword({ ...newKeyword, keywords: e.target.value })}
+              placeholder="Label (e.g., Spanish)"
+              value={newKeyword.label}
+              onChange={(e) => setNewKeyword({ ...newKeyword, label: e.target.value })}
+              className="w-32"
+            />
+            <Input
+              placeholder="Match terms (e.g., Spanish, En Español, ESP)"
+              value={newKeyword.match_terms}
+              onChange={(e) => setNewKeyword({ ...newKeyword, match_terms: e.target.value })}
               className="flex-1"
             />
             <Select
