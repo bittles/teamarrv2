@@ -230,124 +230,137 @@ def delete_team(team_id: int):
 def bulk_import_teams(request: BulkImportRequest):
     """Bulk import teams from cache.
 
-    Consolidates by (provider, provider_team_id, sport) when leagues are compatible:
-    - Soccer: teams play in multiple competitions, so all leagues consolidate
-    - American Football: NFL and college-football have overlapping IDs for different
-      teams, so they are NOT consolidated
-    - New teams are created with their league in the leagues array
-    - Existing teams have new leagues added if compatible
-    - Skips when league already exists for the team
+    Key behavior:
+    - Soccer: teams play in multiple competitions (EPL + Champions League), so
+      they are consolidated by (provider, provider_team_id, sport). New leagues
+      are added to existing team's leagues array.
+    - Non-soccer: ESPN reuses team IDs across leagues for DIFFERENT teams
+      (e.g., ID 8 = Detroit Pistons in NBA, Minnesota Lynx in WNBA).
+      Each league gets its own team entry.
     """
     imported = 0
     updated = 0
     skipped = 0
 
     with get_db() as conn:
-        # Get existing teams indexed by (provider, provider_team_id, sport)
-        # Store list of (team_id, leagues) since multiple teams may share the key
-        # when leagues are incompatible (e.g., NFL vs college-football)
-        cursor = conn.execute("SELECT id, provider, provider_team_id, sport, leagues FROM teams")
-        existing: dict[tuple[str, str, str], list[tuple[int, list[str]]]] = {}
+        # Build two indexes for existing teams:
+        # 1. Full key (provider, id, sport, league) - for exact lookups
+        # 2. Sport key (provider, id, sport) - for soccer consolidation lookups
+        cursor = conn.execute(
+            "SELECT id, provider, provider_team_id, sport, primary_league, leagues FROM teams"
+        )
+        existing_full: dict[tuple[str, str, str, str], tuple[int, list[str]]] = {}
+        existing_sport: dict[tuple[str, str, str], list[tuple[int, str, list[str]]]] = {}
+
         for row in cursor.fetchall():
-            key = (row["provider"], row["provider_team_id"], row["sport"])
+            full_key = (row["provider"], row["provider_team_id"], row["sport"], row["primary_league"])
+            sport_key = (row["provider"], row["provider_team_id"], row["sport"])
             leagues = _parse_leagues(row["leagues"])
-            if key not in existing:
-                existing[key] = []
-            existing[key].append((row["id"], leagues))
+
+            existing_full[full_key] = (row["id"], leagues)
+            if sport_key not in existing_sport:
+                existing_sport[sport_key] = []
+            existing_sport[sport_key].append((row["id"], row["primary_league"], leagues))
+
+        # Pre-load all leagues from team_cache for soccer teams (avoids N+1 queries)
+        soccer_teams = [t for t in request.teams if t.sport.lower() == "soccer"]
+        team_cache_leagues: dict[tuple[str, str, str], list[str]] = {}
+        if soccer_teams:
+            # Build placeholders for batch query
+            keys = [(t.provider, t.provider_team_id, t.sport) for t in soccer_teams]
+            unique_keys = list(set(keys))
+            if unique_keys:
+                # Query all leagues at once
+                placeholders = " OR ".join(
+                    ["(provider = ? AND provider_team_id = ? AND sport = ?)"] * len(unique_keys)
+                )
+                params = [val for key in unique_keys for val in key]
+                cursor = conn.execute(
+                    f"SELECT provider, provider_team_id, sport, league FROM team_cache WHERE {placeholders}",
+                    params,
+                )
+                for row in cursor.fetchall():
+                    cache_key = (row["provider"], row["provider_team_id"], row["sport"])
+                    if cache_key not in team_cache_leagues:
+                        team_cache_leagues[cache_key] = []
+                    team_cache_leagues[cache_key].append(row["league"])
 
         for team in request.teams:
-            key = (team.provider, team.provider_team_id, team.sport)
-
-            # For soccer, auto-discover all leagues from cache
             is_soccer = team.sport.lower() == "soccer"
+            full_key = (team.provider, team.provider_team_id, team.sport, team.league)
+            sport_key = (team.provider, team.provider_team_id, team.sport)
+
             if is_soccer:
-                all_leagues = _get_all_leagues_from_cache(
-                    conn, team.provider, team.provider_team_id, team.sport
-                )
-                # Ensure the requested league is included
+                # Soccer: consolidate all leagues into one team entry
+                # Use pre-loaded cache instead of querying per team
+                all_leagues = team_cache_leagues.get(sport_key, []).copy()
                 if team.league not in all_leagues:
                     all_leagues.append(team.league)
-            else:
-                all_leagues = [team.league]
 
-            if key in existing:
-                # Check if any existing team with this key can accept this league
-                found_compatible = False
-                for i, (team_id, current_leagues) in enumerate(existing[key]):
-                    # Check if new league is compatible with existing leagues
-                    if all(_can_consolidate_leagues(conn, team.league, lg) for lg in current_leagues):
-                        # Check which leagues are actually new
-                        new_to_add = [lg for lg in all_leagues if lg not in current_leagues]
-                        if not new_to_add:
-                            skipped += 1
-                        else:
-                            # Add all new leagues to the existing team
-                            new_leagues = sorted(set(current_leagues + all_leagues))
-                            conn.execute(
-                                "UPDATE teams SET leagues = ? WHERE id = ?",
-                                (json.dumps(new_leagues), team_id),
-                            )
-                            existing[key][i] = (team_id, new_leagues)
-                            updated += 1
-                        found_compatible = True
-                        break
-
-                if not found_compatible:
-                    # No compatible team found - create new team
+                if sport_key in existing_sport:
+                    # Found existing soccer team - update its leagues array
+                    team_id, primary_league, current_leagues = existing_sport[sport_key][0]
+                    new_to_add = [lg for lg in all_leagues if lg not in current_leagues]
+                    if not new_to_add:
+                        skipped += 1
+                    else:
+                        new_leagues = sorted(set(current_leagues + all_leagues))
+                        conn.execute(
+                            "UPDATE teams SET leagues = ? WHERE id = ?",
+                            (json.dumps(new_leagues), team_id),
+                        )
+                        existing_sport[sport_key][0] = (team_id, primary_league, new_leagues)
+                        updated += 1
+                else:
+                    # Create new soccer team
                     channel_id = generate_channel_id(team.team_name, team.league)
                     leagues_json = json.dumps(sorted(all_leagues))
-
                     cursor = conn.execute(
                         """
                         INSERT INTO teams (
                             provider, provider_team_id, primary_league, leagues, sport,
-                            team_name, team_abbrev, team_logo_url,
-                            channel_id, active
+                            team_name, team_abbrev, team_logo_url, channel_id, active
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                         """,
                         (
-                            team.provider,
-                            team.provider_team_id,
-                            team.league,
-                            leagues_json,
-                            team.sport,
-                            team.team_name,
-                            team.team_abbrev,
-                            team.logo_url,
-                            channel_id,
+                            team.provider, team.provider_team_id, team.league,
+                            leagues_json, team.sport, team.team_name,
+                            team.team_abbrev, team.logo_url, channel_id,
                         ),
                     )
-                    new_team_id = cursor.lastrowid
-                    existing[key].append((new_team_id, all_leagues))
+                    new_id = cursor.lastrowid
+                    existing_full[full_key] = (new_id, all_leagues)
+                    existing_sport[sport_key] = [(new_id, team.league, all_leagues)]
                     imported += 1
             else:
-                # New team - create with this league as primary
-                channel_id = generate_channel_id(team.team_name, team.league)
-                leagues_json = json.dumps(sorted(all_leagues))
-
-                cursor = conn.execute(
-                    """
-                    INSERT INTO teams (
-                        provider, provider_team_id, primary_league, leagues, sport,
-                        team_name, team_abbrev, team_logo_url,
-                        channel_id, active
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                    """,
-                    (
-                        team.provider,
-                        team.provider_team_id,
-                        team.league,  # First league becomes primary
-                        leagues_json,
-                        team.sport,
-                        team.team_name,
-                        team.team_abbrev,
-                        team.logo_url,
-                        channel_id,
-                    ),
-                )
-                team_id = cursor.lastrowid
-                existing[key] = [(team_id, all_leagues)]
-                imported += 1
+                # Non-soccer: each league gets its own team entry
+                # ESPN reuses IDs across leagues for different teams
+                if full_key in existing_full:
+                    # Exact match exists - skip
+                    skipped += 1
+                else:
+                    # Create new team for this league
+                    channel_id = generate_channel_id(team.team_name, team.league)
+                    leagues_json = json.dumps([team.league])
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO teams (
+                            provider, provider_team_id, primary_league, leagues, sport,
+                            team_name, team_abbrev, team_logo_url, channel_id, active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        """,
+                        (
+                            team.provider, team.provider_team_id, team.league,
+                            leagues_json, team.sport, team.team_name,
+                            team.team_abbrev, team.logo_url, channel_id,
+                        ),
+                    )
+                    new_id = cursor.lastrowid
+                    existing_full[full_key] = (new_id, [team.league])
+                    if sport_key not in existing_sport:
+                        existing_sport[sport_key] = []
+                    existing_sport[sport_key].append((new_id, team.league, [team.league]))
+                    imported += 1
 
     logger.info("[BULK_IMPORT] Teams: %d imported, %d updated, %d skipped", imported, updated, skipped)
     return BulkImportResponse(imported=imported, updated=updated, skipped=skipped)

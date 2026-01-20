@@ -158,6 +158,7 @@ class DisplaySettingsModel(BaseModel):
 class TeamFilterSettingsModel(BaseModel):
     """Default team filtering settings for event groups."""
 
+    enabled: bool = True  # Master toggle - when False, filtering is skipped
     include_teams: list[dict] | None = None
     exclude_teams: list[dict] | None = None
     mode: str = "include"
@@ -166,11 +167,33 @@ class TeamFilterSettingsModel(BaseModel):
 class TeamFilterSettingsUpdate(BaseModel):
     """Update model for team filter settings."""
 
+    enabled: bool | None = None
     include_teams: list[dict] | None = None
     exclude_teams: list[dict] | None = None
     mode: str | None = None
     clear_include_teams: bool = False
     clear_exclude_teams: bool = False
+
+
+# =============================================================================
+# CHANNEL NUMBERING SETTINGS
+# =============================================================================
+
+
+class ChannelNumberingSettingsModel(BaseModel):
+    """Channel numbering and sorting settings for AUTO groups."""
+
+    numbering_mode: str = "strict_block"  # 'strict_block', 'rational_block', 'strict_compact'
+    sorting_scope: str = "per_group"  # 'per_group', 'global'
+    sort_by: str = "time"  # 'sport_league_time', 'time', 'stream_order'
+
+
+class ChannelNumberingSettingsUpdate(BaseModel):
+    """Update model for channel numbering settings (all fields optional)."""
+
+    numbering_mode: str | None = None
+    sorting_scope: str | None = None
+    sort_by: str | None = None
 
 
 # =============================================================================
@@ -189,8 +212,9 @@ class AllSettingsModel(BaseModel):
     durations: DurationSettingsModel
     display: DisplaySettingsModel
     team_filter: TeamFilterSettingsModel | None = None
+    channel_numbering: ChannelNumberingSettingsModel | None = None
     epg_generation_counter: int = 0
-    schema_version: int = 22
+    schema_version: int = 30
 
     # UI timezone info (read-only, from environment or fallback to epg_timezone)
     ui_timezone: str = "America/New_York"

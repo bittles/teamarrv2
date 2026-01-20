@@ -20,7 +20,7 @@ Extractor = Callable[["TemplateContext", "GameContext | None"], str]
 class Category(Enum):
     """Variable categories for organization and documentation."""
 
-    IDENTITY = auto()  # team_name, opponent, league
+    IDENTITY = auto()  # team_name, opponent, league, exception_keyword
     DATETIME = auto()  # game_date, game_time
     VENUE = auto()  # venue, venue_city
     HOME_AWAY = auto()  # is_home, vs_at

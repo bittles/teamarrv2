@@ -12,6 +12,7 @@ from fastapi import APIRouter
 
 from teamarr.database import get_db
 
+from .channel_numbering import router as channel_numbering_router
 from .dispatcharr import router as dispatcharr_router
 from .display import router as display_router
 from .epg import router as epg_router
@@ -19,6 +20,7 @@ from .lifecycle import router as lifecycle_router
 from .team_filter import router as team_filter_router
 from .models import (
     AllSettingsModel,
+    ChannelNumberingSettingsModel,
     DispatcharrSettingsModel,
     DisplaySettingsModel,
     DurationSettingsModel,
@@ -38,6 +40,7 @@ router.include_router(lifecycle_router)
 router.include_router(epg_router)
 router.include_router(display_router)
 router.include_router(team_filter_router)
+router.include_router(channel_numbering_router)
 
 
 # =============================================================================
@@ -106,6 +109,11 @@ def get_settings():
             exclude_teams=settings.team_filter.exclude_teams,
             mode=settings.team_filter.mode,
         ),
+        channel_numbering=ChannelNumberingSettingsModel(
+            numbering_mode=settings.channel_numbering.numbering_mode,
+            sorting_scope=settings.channel_numbering.sorting_scope,
+            sort_by=settings.channel_numbering.sort_by,
+        ),
         epg_generation_counter=settings.epg_generation_counter,
         schema_version=settings.schema_version,
         # UI timezone info (read-only)
@@ -118,6 +126,7 @@ def get_settings():
 __all__ = [
     "router",
     "AllSettingsModel",
+    "ChannelNumberingSettingsModel",
     "DispatcharrSettingsModel",
     "DisplaySettingsModel",
     "DurationSettingsModel",

@@ -35,7 +35,8 @@ interface ChannelGroup {
 }
 
 async function fetchChannelGroups(): Promise<ChannelGroup[]> {
-  const response = await fetch("/api/v1/dispatcharr/channel-groups")
+  // exclude_m3u=true filters out M3U-originated groups, showing only user-created groups
+  const response = await fetch("/api/v1/dispatcharr/channel-groups?exclude_m3u=true")
   if (!response.ok) {
     throw new Error(response.status === 503 ? "Dispatcharr not connected" : "Failed to fetch channel groups")
   }
@@ -73,6 +74,7 @@ export function EventGroupForm() {
     template_id: null,
     channel_start_number: null,
     channel_assignment_mode: "auto",
+    channel_group_mode: "static",  // Dynamic channel group assignment mode
     duplicate_event_handling: "consolidate",
     sort_order: 0,
     total_stream_count: 0,
@@ -141,6 +143,9 @@ export function EventGroupForm() {
   // Channel profile default state - true = use global default, false = custom selection
   const [useDefaultProfiles, setUseDefaultProfiles] = useState(true)
 
+  // Team filter default state - true = use global default, false = custom per-group filter
+  const [useDefaultTeamFilter, setUseDefaultTeamFilter] = useState(true)
+
   // Mutations
   const createMutation = useCreateGroup()
   const updateMutation = useUpdateGroup()
@@ -156,6 +161,7 @@ export function EventGroupForm() {
         template_id: group.template_id,
         channel_start_number: group.channel_start_number,
         channel_group_id: group.channel_group_id,
+        channel_group_mode: group.channel_group_mode || "static",
         channel_profile_ids: group.channel_profile_ids,  // Keep null = "use default"
         duplicate_event_handling: group.duplicate_event_handling,
         channel_assignment_mode: group.channel_assignment_mode,
@@ -193,6 +199,11 @@ export function EventGroupForm() {
 
       // Set useDefaultProfiles based on whether channel_profile_ids is null (use default) or has a value
       setUseDefaultProfiles(group.channel_profile_ids === null || group.channel_profile_ids === undefined)
+
+      // Set useDefaultTeamFilter based on whether include_teams/exclude_teams are null (use default)
+      // null means use global default, any array (even empty) means custom per-group filter
+      const hasCustomTeamFilter = group.include_teams !== null || group.exclude_teams !== null
+      setUseDefaultTeamFilter(!hasCustomTeamFilter)
 
       if (mode === "single") {
         // Single league mode - use first league
@@ -746,18 +757,31 @@ export function EventGroupForm() {
             </CardContent>
           </Card>}
 
-          {/* Dispatcharr Settings - hidden for child groups */}
+          {/* Channel Group Assignment - hidden for child groups */}
           {!isChildGroup && <Card>
             <CardHeader>
-              <CardTitle>Dispatcharr Settings</CardTitle>
+              <CardTitle>Channel Group</CardTitle>
               <CardDescription>
-                Channel group and profile assignments in Dispatcharr
+                Managed channels will be assigned to the selected group in Dispatcharr
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Channel Group - V1 style with filter and list */}
-              <div className="space-y-2">
-                <Label>Channel Group</Label>
+            <CardContent>
+                <div className="flex flex-col gap-3">
+                  {/* Existing group option with nested group list */}
+                  <div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="channel_group_mode"
+                        value="static"
+                        checked={formData.channel_group_mode === "static"}
+                        onChange={() => setFormData({ ...formData, channel_group_mode: "static" })}
+                        className="accent-primary"
+                      />
+                      <span className="text-sm">Existing group</span>
+                    </label>
+                    {/* Nested group selection - always visible but disabled when not static */}
+                    <div className={`mt-2 ml-6 space-y-2 ${formData.channel_group_mode !== "static" ? "opacity-40 pointer-events-none" : ""}`}>
                 <div className="flex gap-2 items-center">
                   <Input
                     placeholder="Filter groups..."
@@ -771,8 +795,7 @@ export function EventGroupForm() {
                     size="sm"
                     onClick={() => setShowCreateGroup(!showCreateGroup)}
                   >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    New
+                    <Plus className="h-3.5 w-3.5" />
                   </Button>
                 </div>
                 {showCreateGroup && (
@@ -869,14 +892,58 @@ export function EventGroupForm() {
                     })
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Dispatcharr group to assign created channels to
-                </p>
-              </div>
+                    </div>
+                  </div>
 
-              {/* Channel Profiles */}
-              <div className="space-y-2">
-                <Label>Channel Profiles</Label>
+                  {/* Dynamic group options */}
+                  <div className="border rounded-md bg-muted/30">
+                    <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Dynamic Groups
+                    </div>
+                    <div className="divide-y">
+                      <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-accent">
+                        <input
+                          type="radio"
+                          name="channel_group_mode"
+                          value="sport"
+                          checked={formData.channel_group_mode === "sport"}
+                          onChange={() => setFormData({ ...formData, channel_group_mode: "sport" })}
+                          className="accent-primary"
+                        />
+                        <div className="flex-1">
+                          <code className="text-sm font-medium bg-muted px-1 rounded">{"{sport}"}</code>
+                          <p className="text-xs text-muted-foreground mt-0.5">Assign channels to a group by sport name (e.g., Basketball). Group created if it doesn't exist.</p>
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-accent">
+                        <input
+                          type="radio"
+                          name="channel_group_mode"
+                          value="league"
+                          checked={formData.channel_group_mode === "league"}
+                          onChange={() => setFormData({ ...formData, channel_group_mode: "league" })}
+                          className="accent-primary"
+                        />
+                        <div className="flex-1">
+                          <code className="text-sm font-medium bg-muted px-1 rounded">{"{league}"}</code>
+                          <p className="text-xs text-muted-foreground mt-0.5">Assign channels to a group by league name (e.g., NBA, NFL). Group created if it doesn't exist.</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+            </CardContent>
+          </Card>}
+
+          {/* Channel Profiles - hidden for child groups */}
+          {!isChildGroup && <Card>
+            <CardHeader>
+              <CardTitle>Channel Profiles</CardTitle>
+              <CardDescription>
+                Managed channels will be added to the selected profiles in Dispatcharr
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
                 <div className="flex items-center gap-2 mb-2">
                   <Checkbox
                     id="use_default_profiles"
@@ -894,20 +961,19 @@ export function EventGroupForm() {
                     }}
                   />
                   <Label htmlFor="use_default_profiles" className="font-normal cursor-pointer">
-                    Use default channel profiles
+                    Use default channel profiles (set in Integrations tab in Settings)
                   </Label>
                 </div>
+                {!useDefaultProfiles && (
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Select specific profiles for this group
+                  </p>
+                )}
                 <ChannelProfileSelector
                   selectedIds={formData.channel_profile_ids || []}
                   onChange={(ids) => setFormData({ ...formData, channel_profile_ids: ids })}
                   disabled={useDefaultProfiles}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {useDefaultProfiles
-                    ? "Using default profiles from global settings"
-                    : "Select specific profiles for this group"}
-                </p>
-              </div>
             </CardContent>
           </Card>}
 
@@ -952,10 +1018,10 @@ export function EventGroupForm() {
                     />
                     <div>
                       <Label htmlFor="skip_builtin" className="font-normal cursor-pointer">
-                        Skip built-in game detection
+                        Skip built-in stream filtering
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Disable automatic filtering when stream names don't use standard separators (vs, @, at).
+                        Bypass placeholder detection, unsupported sport filtering, and event pattern requirements.
                       </p>
                     </div>
                   </div>
@@ -1138,128 +1204,140 @@ export function EventGroupForm() {
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     )}
                     <CardTitle className="text-base">Team Filtering</CardTitle>
-                    {((formData.include_teams?.length ?? 0) > 0 || (formData.exclude_teams?.length ?? 0) > 0) && (
+                    {useDefaultTeamFilter ? (
+                      <Badge variant="outline" className="text-xs">Using default</Badge>
+                    ) : ((formData.include_teams?.length ?? 0) > 0 || (formData.exclude_teams?.length ?? 0) > 0) ? (
                       <Badge variant="secondary" className="text-xs">
                         {(formData.include_teams?.length ?? 0) + (formData.exclude_teams?.length ?? 0)} teams
                       </Badge>
-                    )}
+                    ) : null}
                   </div>
                 </CardHeader>
               </button>
 
               {teamFilterExpanded && (
                 <CardContent className="space-y-4 pt-0">
-                  {/* Enable/Disable toggle */}
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground">
-                      Filter events by specific teams. Child groups inherit this filter.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="group-team-filter-enabled" className="text-sm">
-                        {(formData.include_teams?.length || formData.exclude_teams?.length) ? "Enabled" : "Disabled"}
-                      </Label>
-                      <Switch
-                        id="group-team-filter-enabled"
-                        checked={!!(formData.include_teams?.length || formData.exclude_teams?.length)}
-                        onCheckedChange={(checked) => {
-                          if (!checked) {
-                            // Disable - clear all teams (send [] to clear, not null)
+                  {/* Use default toggle */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <Checkbox
+                      id="use_default_team_filter"
+                      checked={useDefaultTeamFilter}
+                      onClick={() => {
+                        const newValue = !useDefaultTeamFilter
+                        setUseDefaultTeamFilter(newValue)
+                        if (newValue) {
+                          // Use default - set to null (will inherit from global settings)
+                          setFormData({
+                            ...formData,
+                            include_teams: null,
+                            exclude_teams: null,
+                          })
+                        } else {
+                          // Custom selection - set to empty array initially
+                          setFormData({
+                            ...formData,
+                            include_teams: [],
+                            exclude_teams: [],
+                          })
+                        }
+                      }}
+                    />
+                    <Label htmlFor="use_default_team_filter" className="font-normal cursor-pointer">
+                      Use default team filter (set in Event Groups tab in Settings)
+                    </Label>
+                  </div>
+
+                  {!useDefaultTeamFilter && (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        Configure a custom team filter for this group. Child groups inherit this filter.
+                      </p>
+
+                      {/* Mode selector */}
+                      <div className="flex gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="team_filter_mode"
+                            value="include"
+                            checked={formData.team_filter_mode === "include"}
+                            onChange={() => {
+                              // Move teams to include list when switching modes
+                              const teams = formData.exclude_teams || []
+                              setFormData({
+                                ...formData,
+                                team_filter_mode: "include",
+                                include_teams: teams.length > 0 ? teams : formData.include_teams,
+                                exclude_teams: [],
+                              })
+                            }}
+                            className="accent-primary"
+                          />
+                          <span className="text-sm">Include only selected teams</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="team_filter_mode"
+                            value="exclude"
+                            checked={formData.team_filter_mode === "exclude"}
+                            onChange={() => {
+                              // Move teams to exclude list when switching modes
+                              const teams = formData.include_teams || []
+                              setFormData({
+                                ...formData,
+                                team_filter_mode: "exclude",
+                                exclude_teams: teams.length > 0 ? teams : formData.exclude_teams,
+                                include_teams: [],
+                              })
+                            }}
+                            className="accent-primary"
+                          />
+                          <span className="text-sm">Exclude selected teams</span>
+                        </label>
+                      </div>
+
+                      {/* Team picker */}
+                      <TeamPicker
+                        leagues={formData.leagues}
+                        selectedTeams={
+                          formData.team_filter_mode === "include"
+                            ? (formData.include_teams || [])
+                            : (formData.exclude_teams || [])
+                        }
+                        onSelectionChange={(teams) => {
+                          if (formData.team_filter_mode === "include") {
                             setFormData({
                               ...formData,
-                              include_teams: [],
+                              include_teams: teams,
                               exclude_teams: [],
-                              team_filter_mode: "include",
+                            })
+                          } else {
+                            setFormData({
+                              ...formData,
+                              exclude_teams: teams,
+                              include_teams: [],
                             })
                           }
-                          // If enabling, user will add teams below
                         }}
                       />
-                    </div>
-                  </div>
 
-                  {/* Mode selector */}
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="team_filter_mode"
-                        value="include"
-                        checked={formData.team_filter_mode === "include"}
-                        onChange={() => {
-                          // Move teams to include list when switching modes
-                          const teams = formData.exclude_teams || []
-                          setFormData({
-                            ...formData,
-                            team_filter_mode: "include",
-                            include_teams: teams.length > 0 ? teams : formData.include_teams,
-                            exclude_teams: [],  // Send [] to clear
-                          })
-                        }}
-                        className="text-primary"
-                      />
-                      <span className="text-sm">Include only selected teams</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="team_filter_mode"
-                        value="exclude"
-                        checked={formData.team_filter_mode === "exclude"}
-                        onChange={() => {
-                          // Move teams to exclude list when switching modes
-                          const teams = formData.include_teams || []
-                          setFormData({
-                            ...formData,
-                            team_filter_mode: "exclude",
-                            exclude_teams: teams.length > 0 ? teams : formData.exclude_teams,
-                            include_teams: [],  // Send [] to clear
-                          })
-                        }}
-                        className="text-primary"
-                      />
-                      <span className="text-sm">Exclude selected teams</span>
-                    </label>
-                  </div>
-
-                  {/* Team picker */}
-                  <TeamPicker
-                    leagues={formData.leagues}
-                    selectedTeams={
-                      formData.team_filter_mode === "include"
-                        ? (formData.include_teams || [])
-                        : (formData.exclude_teams || [])
-                    }
-                    onSelectionChange={(teams) => {
-                      if (formData.team_filter_mode === "include") {
-                        setFormData({
-                          ...formData,
-                          include_teams: teams,  // Send [] to clear, not null
-                          exclude_teams: [],
-                        })
-                      } else {
-                        setFormData({
-                          ...formData,
-                          exclude_teams: teams,  // Send [] to clear, not null
-                          include_teams: [],
-                        })
-                      }
-                    }}
-                  />
-
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">
-                      {!(formData.include_teams?.length || formData.exclude_teams?.length)
-                        ? "No filter active. All events will be matched."
-                        : formData.team_filter_mode === "include"
-                          ? `Only events involving ${formData.include_teams?.length} selected team(s) will be matched.`
-                          : `Events involving ${formData.exclude_teams?.length} selected team(s) will be excluded.`}
-                    </p>
-                    {(formData.include_teams?.length || formData.exclude_teams?.length) ? (
-                      <p className="text-xs text-muted-foreground italic">
-                        Filter only applies to leagues where you've made selections.
-                      </p>
-                    ) : null}
-                  </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                          {!(formData.include_teams?.length || formData.exclude_teams?.length)
+                            ? "No teams selected. All events will be matched."
+                            : formData.team_filter_mode === "include"
+                              ? `Only events involving ${formData.include_teams?.length} selected team(s) will be matched.`
+                              : `Events involving ${formData.exclude_teams?.length} selected team(s) will be excluded.`}
+                        </p>
+                        {(formData.include_teams?.length || formData.exclude_teams?.length) ? (
+                          <p className="text-xs text-muted-foreground italic">
+                            Filter only applies to leagues where you've made selections.
+                          </p>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               )}
             </Card>
@@ -1275,42 +1353,23 @@ export function EventGroupForm() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="channel_sort_order">Channel Sort Order</Label>
-                    <Select
-                      id="channel_sort_order"
-                      value={formData.channel_sort_order || "time"}
-                      onChange={(e) =>
-                        setFormData({ ...formData, channel_sort_order: e.target.value })
-                      }
-                    >
-                      <option value="time">By Time (default)</option>
-                      <option value="sport_time">By Sport, then Time</option>
-                      <option value="league_time">By League, then Time</option>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      How to order channels when multiple events are scheduled
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="overlap_handling">Overlap Handling</Label>
-                    <Select
-                      id="overlap_handling"
-                      value={formData.overlap_handling || "add_stream"}
-                      onChange={(e) =>
-                        setFormData({ ...formData, overlap_handling: e.target.value })
-                      }
-                    >
-                      <option value="add_stream">Add Stream (default)</option>
-                      <option value="add_only">Add Only</option>
-                      <option value="create_all">Create All</option>
-                      <option value="skip">Skip</option>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      How to handle events that overlap in time
-                    </p>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="overlap_handling">Overlap Handling</Label>
+                  <Select
+                    id="overlap_handling"
+                    value={formData.overlap_handling || "add_stream"}
+                    onChange={(e) =>
+                      setFormData({ ...formData, overlap_handling: e.target.value })
+                    }
+                  >
+                    <option value="add_stream">Add Stream (default)</option>
+                    <option value="add_only">Add Only</option>
+                    <option value="create_all">Create All</option>
+                    <option value="skip">Skip</option>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    How to handle events that overlap in time
+                  </p>
                 </div>
               </CardContent>
             </Card>

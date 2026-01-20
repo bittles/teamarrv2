@@ -136,3 +136,33 @@ export interface CachedTeam {
 export async function getLeagueTeams(leagueSlug: string): Promise<CachedTeam[]> {
   return api.get(`/cache/leagues/${encodeURIComponent(leagueSlug)}/teams`)
 }
+
+// Sport display names
+export interface SportsResponse {
+  sports: Record<string, string>  // sport_code -> display_name
+}
+
+export async function getSports(): Promise<SportsResponse> {
+  return api.get("/cache/sports")
+}
+
+// Team Picker Leagues - source of truth from team_cache
+export interface TeamPickerLeague {
+  slug: string
+  sport: string
+  sport_display_name: string
+  provider: string
+  team_count: number
+  is_configured: boolean
+  name: string
+  logo_url: string | null
+}
+
+export interface TeamPickerLeaguesResponse {
+  count: number
+  leagues: TeamPickerLeague[]
+}
+
+export async function getTeamPickerLeagues(): Promise<TeamPickerLeaguesResponse> {
+  return api.get("/cache/team-picker-leagues")
+}

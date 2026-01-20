@@ -170,6 +170,21 @@ def trigger_refresh():
     )
 
 
+@router.get("/sports")
+def list_sports() -> dict:
+    """Get all sport codes and their display names.
+
+    Returns:
+        Dict mapping sport codes to display names
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT sport_code, display_name FROM sports ORDER BY display_name")
+        sports = {row["sport_code"]: row["display_name"] for row in cursor.fetchall()}
+
+    return {"sports": sports}
+
+
 @router.get("/leagues")
 def list_leagues(
     sport: str | None = Query(None, description="Filter by sport (e.g., 'soccer')"),
@@ -406,6 +421,71 @@ def get_team_leagues(provider: str, provider_team_id: str) -> dict:
         "provider_team_id": provider_team_id,
         "leagues": league_details,
         "count": len(league_details),
+    }
+
+
+@router.get("/team-picker-leagues")
+def get_team_picker_leagues() -> dict:
+    """Get all leagues from team_cache for the TeamPicker component.
+
+    Returns unique leagues from team_cache with their sports.
+    Leagues that exist in the configured leagues table sort first.
+    This endpoint is the source of truth for TeamPicker to avoid
+    "unknown sport" issues.
+
+    Returns:
+        List of leagues with sport and is_configured flag, plus sport display names
+    """
+    from teamarr.core.sports import get_sport_display_names_from_db
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Get sport display names from sports table
+        sport_display_names = get_sport_display_names_from_db(conn)
+
+        # Get unique leagues from team_cache (source of truth)
+        # LEFT JOIN with leagues table to get is_configured flag and display name
+        # Sort: configured first, then by sport, then by league name
+        cursor.execute(
+            """
+            SELECT
+                tc.league,
+                tc.sport,
+                tc.provider,
+                COUNT(*) as team_count,
+                CASE WHEN l.league_code IS NOT NULL THEN 1 ELSE 0 END as is_configured,
+                COALESCE(l.display_name, lc.league_name, UPPER(tc.league)) as display_name,
+                l.logo_url as configured_logo_url,
+                lc.logo_url as cached_logo_url
+            FROM team_cache tc
+            LEFT JOIN leagues l ON l.league_code = tc.league
+            LEFT JOIN league_cache lc ON lc.league_slug = tc.league
+            GROUP BY tc.league, tc.sport, tc.provider
+            ORDER BY
+                is_configured DESC,
+                tc.sport,
+                display_name
+            """
+        )
+
+        leagues = [
+            {
+                "slug": row["league"],
+                "sport": row["sport"],
+                "sport_display_name": sport_display_names.get(row["sport"], row["sport"].title()),
+                "provider": row["provider"],
+                "team_count": row["team_count"],
+                "is_configured": bool(row["is_configured"]),
+                "name": row["display_name"],
+                "logo_url": row["configured_logo_url"] or row["cached_logo_url"],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    return {
+        "count": len(leagues),
+        "leagues": leagues,
     }
 
 

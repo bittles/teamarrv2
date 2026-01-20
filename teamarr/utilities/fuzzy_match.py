@@ -1,7 +1,7 @@
 """Fuzzy string matching for team names.
 
 Uses rapidfuzz for fast, maintenance-free fuzzy matching.
-Provides pattern generation and matching utilities for the codebase.
+Provides whole-name token_set_ratio matching for event name comparison.
 """
 
 import re
@@ -9,8 +9,6 @@ from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 from unidecode import unidecode
-
-from teamarr.core import Team
 
 # Common abbreviations to expand for better matching
 # Key: abbreviation (lowercase), Value: expansion
@@ -24,192 +22,20 @@ ABBREVIATIONS = {
     "v": "versus",
 }
 
-# Common mascot/suffix words to strip for partial matching
-MASCOT_WORDS = {
-    # Generic
-    "team",
-    "club",
-    "fc",
-    "sc",
-    "cf",
-    "united",
-    "city",
-    # Animals
-    "eagles",
-    "owls",
-    "lions",
-    "tigers",
-    "bears",
-    "wolves",
-    "hawks",
-    "falcons",
-    "panthers",
-    "jaguars",
-    "bengals",
-    "colts",
-    "broncos",
-    "chargers",
-    "raiders",
-    "ravens",
-    "cardinals",
-    "seahawks",
-    "dolphins",
-    "bills",
-    "jets",
-    "giants",
-    "patriots",
-    "steelers",
-    "browns",
-    "packers",
-    "vikings",
-    "saints",
-    "buccaneers",
-    "cowboys",
-    "commanders",
-    "49ers",
-    "rams",
-    "chiefs",
-    "texans",
-    "titans",
-    "cavaliers",
-    "celtics",
-    "bulls",
-    "pistons",
-    "pacers",
-    "heat",
-    "magic",
-    "hornets",
-    "wizards",
-    "knicks",
-    "nets",
-    "76ers",
-    "sixers",
-    "raptors",
-    "bucks",
-    "timberwolves",
-    "thunder",
-    "blazers",
-    "warriors",
-    "kings",
-    "lakers",
-    "clippers",
-    "suns",
-    "nuggets",
-    "jazz",
-    "grizzlies",
-    "pelicans",
-    "spurs",
-    "mavericks",
-    "rockets",
-    "bruins",
-    "canadiens",
-    "red wings",
-    "blackhawks",
-    "blues",
-    "avalanche",
-    "stars",
-    "wild",
-    "predators",
-    "hurricanes",
-    "lightning",
-    "rangers",
-    "islanders",
-    "devils",
-    "flyers",
-    "penguins",
-    "capitals",
-    "blue jackets",
-    "senators",
-    "maple leafs",
-    "sabres",
-    "kraken",
-    "golden knights",
-    "flames",
-    "oilers",
-    "canucks",
-    "sharks",
-    "ducks",
-    "coyotes",  # College
-    "bulldogs",
-    "wildcats",
-    "huskies",
-    "cougars",
-    "badgers",
-    "gophers",
-    "wolverines",
-    "buckeyes",
-    "spartans",
-    "hoosiers",
-    "boilermakers",
-    "hawkeyes",
-    "cornhuskers",
-    "cyclones",
-    "jayhawks",
-    "sooners",
-    "longhorns",
-    "aggies",
-    "razorbacks",
-    "volunteers",
-    "commodores",
-    "crimson tide",
-    "gators",
-    "seminoles",
-    "yellow jackets",
-    "tar heels",
-    "wolfpack",
-    "hokies",
-    "terrapins",
-    "nittany lions",
-    "orange",
-    "mountaineers",
-    "red raiders",
-    "horned frogs",
-    "mustangs",
-    "golden eagles",
-    "blue devils",
-    "demon deacons",
-    "fighting irish",
-    "trojans",
-    "beavers",
-    "sun devils",
-    "buffaloes",
-    "utes",
-    "rebels",
-    "aztecs",
-    "rainbow warriors",
-    "retrievers",
-    "black knights",
-    "musketeers",
-    "beacons",
-    "lancers",
-    "governors",
-    "skyhawks",
-    "tornados",
-    "runnin' bulldogs",
-    # Soccer
-    "rovers",
-    "wanderers",
-    "albion",
-    "athletic",
-    "sporting",
-    "real",
-    "dynamo",
-    "racing",
-    "deportivo",
-    "atletico",
-    "inter",
-    "ac",
-    "as",
-    "ss",
-    "us",
-    # Misc
-    "mammoth",
-    "roar",
-    "glory",
-    "phoenix",
-    "rush",
-    "black bears",
-}
+
+@dataclass
+class TeamPattern:
+    """A searchable pattern for team matching.
+
+    Simplified: just holds text for alias checking and fallback matching.
+
+    Attributes:
+        pattern: The normalized pattern text (lowercase, no punctuation)
+        source: Debug info about where this pattern came from
+    """
+
+    pattern: str
+    source: str = ""
 
 
 @dataclass
@@ -221,11 +47,59 @@ class FuzzyMatchResult:
     pattern_used: str | None = None
 
 
+def normalize_text(value: str) -> str:
+    """Normalize text for matching.
+
+    Applies: unidecode, lowercase, strip punctuation, normalize whitespace.
+    """
+    # Normalize: strip accents (é→e, ü→u), lowercase
+    normalized = unidecode(value).lower().strip()
+    # Remove punctuation (hyphens become spaces)
+    normalized = re.sub(r"[^\w\s]", " ", normalized)
+    # Clean up whitespace
+    normalized = " ".join(normalized.split())
+    return normalized
+
+
+def match_event_name(
+    stream_text: str,
+    event_name: str,
+    threshold: float = 75.0,
+) -> FuzzyMatchResult:
+    """Match stream text against event display name.
+
+    Uses token_set_ratio for order-independent matching.
+    "Seattle U vs Portland" matches "Portland Pilots vs Seattle Redhawks"
+
+    Args:
+        stream_text: Normalized stream text
+        event_name: Event display name (e.g., "Home Team vs Away Team")
+        threshold: Minimum score to consider a match (0-100)
+
+    Returns:
+        FuzzyMatchResult with match status and score
+    """
+    stream_normalized = normalize_text(stream_text)
+    event_normalized = normalize_text(event_name)
+
+    score = fuzz.token_set_ratio(stream_normalized, event_normalized)
+
+    return FuzzyMatchResult(
+        matched=score >= threshold,
+        score=score,
+        pattern_used=event_name,
+    )
+
+
 class FuzzyMatcher:
     """Fuzzy string matcher for team/event names.
 
     Uses rapidfuzz for fast matching with configurable thresholds.
     """
+
+    # Thresholds for whole-name matching
+    HIGH_CONFIDENCE_THRESHOLD = 85.0  # High confidence match
+    ACCEPT_WITH_DATE_THRESHOLD = 75.0  # Accept only if date/time validates
 
     def __init__(
         self,
@@ -241,96 +115,72 @@ class FuzzyMatcher:
         self.threshold = threshold
         self.partial_threshold = partial_threshold
 
-    def generate_team_patterns(self, team: Team) -> list[str]:
-        """Generate all searchable patterns for a team.
+    def generate_team_patterns(self, team: "Team") -> list[TeamPattern]:
+        """Generate searchable patterns for a team.
 
+        Simplified: just creates patterns for alias checking.
         Returns patterns in priority order (most specific first).
-        Patterns are normalized to match how stream text is normalized.
-        """
-        patterns = []
-        seen = set()
 
-        def add(value: str | None) -> None:
+        Args:
+            team: Team object to generate patterns for
+
+        Returns:
+            List of TeamPattern objects
+        """
+        from teamarr.core import Team
+
+        patterns: list[TeamPattern] = []
+        seen: set[str] = set()
+
+        def add(value: str | None, source: str) -> None:
             if value:
-                # Normalize: strip accents (é→e, ü→u), lowercase
-                normalized = unidecode(value).lower().strip()
-                # Remove punctuation (hyphens become spaces) - matches normalize_for_matching
-                normalized = re.sub(r"[^\w\s]", " ", normalized)
-                # Clean up whitespace
-                normalized = " ".join(normalized.split())
+                normalized = normalize_text(value)
                 if normalized and normalized not in seen and len(normalized) >= 2:
                     seen.add(normalized)
-                    patterns.append(normalized)
+                    patterns.append(TeamPattern(normalized, source))
 
-        # Full name: "Florida Atlantic Owls"
-        add(team.name)
-
-        # Name without mascot: "Florida Atlantic"
+        # 1. Full name: "Boston Celtics"
         if team.name:
-            stripped = self._strip_mascot(team.name)
-            add(stripped)
+            add(team.name, source="full_name")
 
-        # Short name: "FAU" or "Fla Atlantic"
-        add(team.short_name)
+        # 2. Short name: "Celtics" or "Florida Atlantic"
+        if team.short_name:
+            add(team.short_name, source="short_name")
 
-        # Abbreviation: "FAU"
-        add(team.abbreviation)
+        # 3. Abbreviation: "BOS", "CHI"
+        if team.abbreviation:
+            add(team.abbreviation, source="abbreviation")
 
         return patterns
 
-    def _strip_mascot(self, name: str) -> str:
-        """Strip common mascot/suffix words from team name.
+    def match_event_name(
+        self,
+        stream_text: str,
+        event_name: str,
+        threshold: float | None = None,
+    ) -> FuzzyMatchResult:
+        """Match stream text against event display name.
 
-        "Florida Atlantic Owls" -> "Florida Atlantic"
-        "Chicago Blackhawks" -> "Chicago"
-        "Toronto Maple Leafs" -> "Toronto"
-        "Columbus Blue Jackets" -> "Columbus"
+        Uses token_set_ratio for order-independent matching.
+
+        Args:
+            stream_text: Normalized stream text
+            event_name: Event display name (e.g., "Home Team vs Away Team")
+            threshold: Override threshold (uses self.threshold if None)
+
+        Returns:
+            FuzzyMatchResult with match status and score
         """
-        name_lower = name.lower()
+        if threshold is None:
+            threshold = self.ACCEPT_WITH_DATE_THRESHOLD
 
-        # First pass: strip multi-word mascots from the end
-        # Sort by length descending to match longest first
-        multi_word_mascots = sorted(
-            [m for m in MASCOT_WORDS if " " in m],
-            key=len,
-            reverse=True,
-        )
-        for mascot in multi_word_mascots:
-            if name_lower.endswith(" " + mascot):
-                # Strip the mascot from the end
-                name = name[: -(len(mascot) + 1)]
-                name_lower = name.lower()
-                break  # Only strip one multi-word mascot
-
-        # Second pass: strip single-word mascots
-        words = name_lower.split()
-        result = []
-
-        for word in words:
-            # Clean punctuation for comparison
-            clean_word = word.strip("'\".,")
-            if clean_word not in MASCOT_WORDS:
-                result.append(word)
-
-        # Return original case if possible
-        if result:
-            # Reconstruct with original words (preserving original case)
-            original_words = name.split()
-            kept = []
-            for orig in original_words:
-                if orig.lower().strip("'\".,") not in MASCOT_WORDS:
-                    kept.append(orig)
-            return " ".join(kept) if kept else name
-
-        return name
+        return match_event_name(stream_text, event_name, threshold)
 
     def _expand_abbreviations(self, text: str) -> str:
         """Expand known abbreviations in text for better matching.
 
         E.g., "UFC FN Prelims" -> "UFC Fight Night Prelims"
         """
-        import re
-
         result = text.lower()
 
         # Sort by length descending to match longer abbreviations first
@@ -342,71 +192,6 @@ class FuzzyMatcher:
             result = re.sub(pattern, expansion, result, flags=re.IGNORECASE)
 
         return result
-
-    # Minimum pattern length for substring matching
-    # Prevents "chi" matching "chicago" when looking for Chicago Blackhawks
-    # Patterns shorter than this use word boundary matching instead
-    MIN_SUBSTRING_LENGTH = 5
-
-    def matches_any(
-        self,
-        patterns: list[str],
-        text: str,
-    ) -> FuzzyMatchResult:
-        """Check if any pattern matches within text.
-
-        Uses multiple strategies:
-        1. Exact substring match (fastest) - only for patterns >= 5 chars
-        2. Word boundary match (for short patterns like abbreviations)
-        3. Token set ratio (handles word order, extra words)
-        4. Partial ratio (handles substrings)
-
-        Abbreviations are expanded before matching (e.g., "FN" -> "Fight Night").
-
-        Args:
-            patterns: List of patterns to search for
-            text: Text to search within
-
-        Returns:
-            FuzzyMatchResult with match status and score
-        """
-        # Expand abbreviations before matching
-        text_lower = self._expand_abbreviations(text)
-
-        # Strategy 1: Exact substring match (fastest) - only for longer patterns
-        # Short patterns like "chi", "tor" would match cities incorrectly
-        for pattern in patterns:
-            if len(pattern) >= self.MIN_SUBSTRING_LENGTH and pattern in text_lower:
-                return FuzzyMatchResult(matched=True, score=100.0, pattern_used=pattern)
-
-        # Strategy 2: Word boundary match for short patterns
-        # "chi" should only match as a standalone word, not within "chicago"
-        for pattern in patterns:
-            if len(pattern) < self.MIN_SUBSTRING_LENGTH:
-                # Use word boundaries to prevent partial city matches
-                word_pattern = r"\b" + re.escape(pattern) + r"\b"
-                if re.search(word_pattern, text_lower):
-                    return FuzzyMatchResult(matched=True, score=100.0, pattern_used=pattern)
-
-        # Strategy 3: Token set ratio (handles word order, extra words)
-        # Good for "Atlanta Falcons" matching "Falcons @ Atlanta"
-        # Only apply to patterns long enough to avoid false positives
-        for pattern in patterns:
-            if len(pattern) >= self.MIN_SUBSTRING_LENGTH:
-                score = fuzz.token_set_ratio(pattern, text_lower)
-                if score >= self.partial_threshold:
-                    return FuzzyMatchResult(matched=True, score=score, pattern_used=pattern)
-
-        # Strategy 4: Partial ratio (handles substrings)
-        # Good for "Florida Atlantic" matching "Florida Atlantic Owls"
-        # Only apply to patterns long enough to avoid false positives
-        for pattern in patterns:
-            if len(pattern) >= self.MIN_SUBSTRING_LENGTH:
-                score = fuzz.partial_ratio(pattern, text_lower)
-                if score >= self.partial_threshold:
-                    return FuzzyMatchResult(matched=True, score=score, pattern_used=pattern)
-
-        return FuzzyMatchResult(matched=False, score=0.0)
 
     def best_match(
         self,

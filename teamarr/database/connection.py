@@ -125,6 +125,10 @@ def init_db(db_path: Path | str | None = None) -> None:
             # (schema.sql INSERT OR REPLACE references these columns)
             _add_fallback_columns_if_needed(conn)
 
+            # Pre-migration: rename exception keywords columns before schema.sql runs
+            # (schema.sql INSERT OR IGNORE references label and match_terms columns)
+            _migrate_exception_keywords_columns(conn)
+
             # Apply schema (creates tables if missing, INSERT OR REPLACE updates seed data)
             conn.executescript(schema_sql)
             # Run remaining migrations for existing databases
@@ -321,6 +325,93 @@ def _add_fallback_columns_if_needed(conn: sqlite3.Connection) -> None:
     if "fallback_league_id" not in columns:
         conn.execute("ALTER TABLE leagues ADD COLUMN fallback_league_id TEXT")
         logger.info("[MIGRATE] Added leagues.fallback_league_id column")
+
+
+def _migrate_exception_keywords_columns(conn: sqlite3.Connection) -> None:
+    """Migrate exception keywords table: keywords -> match_terms, display_name -> label.
+
+    MUST run before schema.sql because INSERT OR IGNORE references the new column names.
+    This pre-migration recreates the table with new column names and migrates data.
+    """
+    # Check if table exists
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='consolidation_exception_keywords'"
+    )
+    if not cursor.fetchone():
+        return  # Fresh database, schema.sql will create table with correct columns
+
+    # Check if migration needed (old columns exist)
+    cursor = conn.execute("PRAGMA table_info(consolidation_exception_keywords)")
+    columns = {row["name"] for row in cursor.fetchall()}
+
+    if "label" in columns and "match_terms" in columns:
+        return  # Already migrated
+
+    if "keywords" not in columns:
+        return  # Unknown schema, skip
+
+    logger.info("[PRE-MIGRATE] Migrating exception keywords: keywords -> match_terms, display_name -> label")
+
+    # Get existing data
+    cursor = conn.execute("""
+        SELECT id, created_at, keywords, behavior, display_name, enabled
+        FROM consolidation_exception_keywords
+    """)
+    existing_rows = cursor.fetchall()
+
+    # Drop old table
+    conn.execute("DROP TABLE consolidation_exception_keywords")
+
+    # Create new table with updated schema
+    conn.execute("""
+        CREATE TABLE consolidation_exception_keywords (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            label TEXT NOT NULL UNIQUE,
+            match_terms TEXT NOT NULL,
+            behavior TEXT NOT NULL DEFAULT 'consolidate'
+                CHECK(behavior IN ('consolidate', 'separate', 'ignore')),
+            enabled BOOLEAN DEFAULT 1
+        )
+    """)
+
+    # Migrate data - use display_name as label if set, otherwise first keyword
+    for row in existing_rows:
+        keywords = row["keywords"] or ""
+        display_name = row["display_name"]
+
+        # Determine label: use display_name if set, otherwise first keyword
+        if display_name:
+            label = display_name
+        else:
+            first_keyword = keywords.split(",")[0].strip() if keywords else "Unknown"
+            label = first_keyword
+
+        conn.execute(
+            """INSERT INTO consolidation_exception_keywords
+               (id, created_at, label, match_terms, behavior, enabled)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                row["id"],
+                row["created_at"],
+                label,
+                keywords,
+                row["behavior"],
+                row["enabled"],
+            ),
+        )
+
+    # Recreate indexes
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_exception_keywords_enabled
+        ON consolidation_exception_keywords(enabled)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_exception_keywords_behavior
+        ON consolidation_exception_keywords(behavior)
+    """)
+
+    logger.info("[PRE-MIGRATE] Migrated %d exception keywords", len(existing_rows))
 
 
 def _seed_tsdb_cache_if_needed(conn: sqlite3.Connection) -> None:
@@ -742,6 +833,352 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE settings SET schema_version = 28 WHERE id = 1")
         logger.info("[MIGRATE] Schema upgraded to version 28 (epg_output_path -> ./data/)")
         current_version = 28
+
+    # Version 29: Add sports table for proper sport display names
+    # Previously {sport} returned raw lowercase value ('mma'), now uses sports.display_name ('MMA')
+    if current_version < 29:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sports (
+                sport_code TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL
+            )
+        """)
+        # Seed with display names - INSERT OR REPLACE ensures idempotency
+        conn.execute("""
+            INSERT OR REPLACE INTO sports (sport_code, display_name) VALUES
+                ('football', 'Football'),
+                ('basketball', 'Basketball'),
+                ('hockey', 'Hockey'),
+                ('baseball', 'Baseball'),
+                ('softball', 'Softball'),
+                ('soccer', 'Soccer'),
+                ('mma', 'MMA'),
+                ('volleyball', 'Volleyball'),
+                ('lacrosse', 'Lacrosse'),
+                ('cricket', 'Cricket'),
+                ('rugby_league', 'Rugby League'),
+                ('rugby_union', 'Rugby Union'),
+                ('boxing', 'Boxing'),
+                ('tennis', 'Tennis'),
+                ('golf', 'Golf'),
+                ('wrestling', 'Wrestling'),
+                ('racing', 'Racing')
+        """)
+        conn.execute("UPDATE settings SET schema_version = 29 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 29 (sports table)")
+        current_version = 29
+
+    # Version 30: Add channel numbering settings and sort priorities table
+    # Enables three numbering modes (strict_block, rational_block, strict_compact)
+    # and global channel sorting by sport/league
+    if current_version < 30:
+        _migrate_to_v30(conn)
+        conn.execute("UPDATE settings SET schema_version = 30 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 30 (channel numbering settings)")
+        current_version = 30
+
+    # Version 31: Consolidate rugby_league and rugby_union into single 'rugby' sport
+    # TSDB API returns 'Rugby' for both NRL and Super Rugby, so we unify them
+    if current_version < 31:
+        _migrate_to_v31(conn)
+        conn.execute("UPDATE settings SET schema_version = 31 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 31 (rugby sport consolidation)")
+        current_version = 31
+
+    # Version 32: Change teams UNIQUE constraint to include primary_league
+    # ESPN reuses team IDs across different leagues for completely different teams
+    # e.g., ID 8 is Detroit Pistons (NBA) AND Minnesota Lynx (WNBA)
+    if current_version < 32:
+        _migrate_to_v32(conn)
+        conn.execute("UPDATE settings SET schema_version = 32 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 32 (teams unique constraint fix)")
+        current_version = 32
+
+    # Version 33: Add dynamic channel group mode for event_epg_groups
+    # Allows {sport} or {league} based channel group assignment instead of static
+    if current_version < 33:
+        _migrate_to_v33(conn)
+        conn.execute("UPDATE settings SET schema_version = 33 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 33 (dynamic channel groups)")
+        current_version = 33
+
+    # Version 34: Add team_filter_enabled to settings
+    # Master toggle to enable/disable team filtering without clearing selections
+    if current_version < 34:
+        _add_column_if_not_exists(
+            conn, "settings", "team_filter_enabled", "BOOLEAN DEFAULT 1"
+        )
+        conn.execute("UPDATE settings SET schema_version = 34 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 34 (team_filter_enabled)")
+        current_version = 34
+
+    # Version 35: Restructure exception keywords - label + match_terms
+    # - Rename 'keywords' -> 'match_terms' (the terms to match in stream names)
+    # - Rename 'display_name' -> 'label' (used for channel naming and {exception_keyword} variable)
+    # - Make label required and unique (was keywords that was unique)
+    # - For existing rows: use display_name as label if set, otherwise use first keyword
+    if current_version < 35:
+        _migrate_to_v35(conn)
+        conn.execute("UPDATE settings SET schema_version = 35 WHERE id = 1")
+        logger.info("[MIGRATE] Schema upgraded to version 35 (exception keywords label + match_terms)")
+        current_version = 35
+
+
+def _migrate_to_v35(conn: sqlite3.Connection) -> None:
+    """Restructure exception keywords table: keywords -> match_terms, display_name -> label.
+
+    This migration:
+    1. Renames 'keywords' column to 'match_terms'
+    2. Renames 'display_name' column to 'label' and makes it required/unique
+    3. For existing rows without display_name, uses the first keyword as the label
+    """
+    # Check if old columns exist (migration already done if not)
+    cursor = conn.execute("PRAGMA table_info(consolidation_exception_keywords)")
+    columns = {row["name"] for row in cursor.fetchall()}
+
+    if "label" in columns and "match_terms" in columns:
+        logger.debug("[MIGRATE] Exception keywords already migrated, skipping")
+        return
+
+    if "keywords" not in columns:
+        logger.debug("[MIGRATE] Exception keywords table has new schema, skipping migration")
+        return
+
+    logger.info("[MIGRATE] Migrating exception keywords: keywords -> match_terms, display_name -> label")
+
+    # Disable foreign keys for table recreation
+    conn.execute("PRAGMA foreign_keys = OFF")
+
+    try:
+        # Get existing data
+        cursor = conn.execute("""
+            SELECT id, created_at, keywords, behavior, display_name, enabled
+            FROM consolidation_exception_keywords
+        """)
+        existing_rows = cursor.fetchall()
+
+        # Create new table with updated schema
+        conn.execute("""
+            CREATE TABLE consolidation_exception_keywords_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                label TEXT NOT NULL UNIQUE,
+                match_terms TEXT NOT NULL,
+                behavior TEXT NOT NULL DEFAULT 'consolidate'
+                    CHECK(behavior IN ('consolidate', 'separate', 'ignore')),
+                enabled BOOLEAN DEFAULT 1
+            )
+        """)
+
+        # Migrate data - use display_name as label if set, otherwise first keyword
+        for row in existing_rows:
+            keywords = row["keywords"] or ""
+            display_name = row["display_name"]
+
+            # Determine label: use display_name if set, otherwise first keyword
+            if display_name:
+                label = display_name
+            else:
+                # Extract first keyword from comma-separated list
+                first_keyword = keywords.split(",")[0].strip() if keywords else "Unknown"
+                label = first_keyword
+
+            conn.execute(
+                """INSERT INTO consolidation_exception_keywords_new
+                   (id, created_at, label, match_terms, behavior, enabled)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    row["id"],
+                    row["created_at"],
+                    label,
+                    keywords,
+                    row["behavior"],
+                    row["enabled"],
+                ),
+            )
+
+        # Drop old table and rename new one
+        conn.execute("DROP TABLE consolidation_exception_keywords")
+        conn.execute(
+            "ALTER TABLE consolidation_exception_keywords_new "
+            "RENAME TO consolidation_exception_keywords"
+        )
+
+        # Recreate indexes
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exception_keywords_enabled
+            ON consolidation_exception_keywords(enabled)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exception_keywords_behavior
+            ON consolidation_exception_keywords(behavior)
+        """)
+
+        conn.commit()
+        logger.info("[MIGRATE] Successfully migrated %d exception keywords", len(existing_rows))
+
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_to_v33(conn: sqlite3.Connection) -> None:
+    """Add channel_group_mode column to event_epg_groups.
+
+    Allows dynamic channel group assignment based on {sport} or {league}
+    instead of a static channel_group_id.
+    """
+    _add_column_if_not_exists(
+        conn,
+        "event_epg_groups",
+        "channel_group_mode",
+        "TEXT DEFAULT 'static' CHECK(channel_group_mode IN ('static', 'sport', 'league'))",
+    )
+    logger.info("[MIGRATE] Added channel_group_mode column to event_epg_groups")
+
+
+def _migrate_to_v32(conn: sqlite3.Connection) -> None:
+    """Change teams UNIQUE constraint to include primary_league.
+
+    ESPN reuses provider_team_id across different basketball leagues for completely
+    different teams (e.g., ID 8 = Detroit Pistons in NBA, Minnesota Lynx in WNBA).
+    The old constraint UNIQUE(provider, provider_team_id, sport) prevented importing
+    teams from multiple leagues that share IDs.
+
+    New constraint: UNIQUE(provider, provider_team_id, sport, primary_league)
+    """
+    # SQLite doesn't support ALTER TABLE to modify constraints, so we recreate the table
+    conn.executescript("""
+        -- Create new table with updated constraint
+        CREATE TABLE teams_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            provider TEXT NOT NULL DEFAULT 'espn',
+            provider_team_id TEXT NOT NULL,
+            primary_league TEXT NOT NULL,
+            leagues TEXT NOT NULL DEFAULT '[]',
+            sport TEXT NOT NULL,
+            team_name TEXT NOT NULL,
+            team_abbrev TEXT,
+            team_logo_url TEXT,
+            team_color TEXT,
+            channel_id TEXT NOT NULL UNIQUE,
+            channel_logo_url TEXT,
+            template_id INTEGER,
+            active BOOLEAN DEFAULT 1,
+            UNIQUE(provider, provider_team_id, sport, primary_league),
+            FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE SET NULL
+        );
+
+        -- Copy data from old table
+        INSERT INTO teams_new SELECT * FROM teams;
+
+        -- Drop old table
+        DROP TABLE teams;
+
+        -- Rename new table
+        ALTER TABLE teams_new RENAME TO teams;
+
+        -- Recreate indexes
+        CREATE INDEX IF NOT EXISTS idx_teams_channel_id ON teams(channel_id);
+        CREATE INDEX IF NOT EXISTS idx_teams_active ON teams(active);
+        CREATE INDEX IF NOT EXISTS idx_teams_provider ON teams(provider);
+        CREATE INDEX IF NOT EXISTS idx_teams_sport ON teams(sport);
+    """)
+    logger.info("[MIGRATE] Updated teams table UNIQUE constraint to include primary_league")
+
+
+def _migrate_to_v31(conn: sqlite3.Connection) -> None:
+    """Consolidate rugby_league and rugby_union into single 'rugby' sport.
+
+    This migration:
+    1. Replaces rugby_league and rugby_union with rugby in sports table
+    2. Updates leagues to use 'rugby' as sport
+    3. Updates channel_sort_priorities if any exist
+    4. Updates managed_channels if any exist with old sport values
+    """
+    # Delete old rugby entries and insert consolidated one
+    conn.execute("DELETE FROM sports WHERE sport_code IN ('rugby_league', 'rugby_union')")
+    conn.execute("INSERT OR REPLACE INTO sports (sport_code, display_name) VALUES ('rugby', 'Rugby')")
+
+    # Update leagues (already done in schema.sql, but needed for existing DBs)
+    conn.execute("UPDATE leagues SET sport = 'rugby' WHERE sport IN ('rugby_league', 'rugby_union')")
+
+    # Update channel_sort_priorities
+    conn.execute("UPDATE channel_sort_priorities SET sport = 'rugby' WHERE sport IN ('rugby_league', 'rugby_union')")
+
+    # Update managed_channels
+    conn.execute("UPDATE managed_channels SET sport = 'rugby' WHERE sport IN ('rugby_league', 'rugby_union')")
+
+    logger.info("[MIGRATE] Consolidated rugby_league and rugby_union into 'rugby'")
+
+
+def _migrate_to_v30(conn: sqlite3.Connection) -> None:
+    """Add channel numbering settings and sort priorities table.
+
+    This migration:
+    1. Adds channel_numbering_mode, channel_sorting_scope, channel_sort_by to settings
+    2. Creates channel_sort_priorities table for global sorting
+    3. Migrates per-group channel_sort_order to global channel_sort_by setting
+    """
+    # Add new settings columns
+    for col_def in [
+        ("channel_numbering_mode", "TEXT DEFAULT 'strict_block'"),
+        ("channel_sorting_scope", "TEXT DEFAULT 'per_group'"),
+        ("channel_sort_by", "TEXT DEFAULT 'time'"),
+    ]:
+        _add_column_if_not_exists(conn, "settings", col_def[0], col_def[1])
+
+    # Create channel_sort_priorities table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS channel_sort_priorities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sport TEXT NOT NULL,
+            league_code TEXT,
+            sort_priority INTEGER NOT NULL,
+            UNIQUE(sport, league_code)
+        )
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_channel_sort_priorities_priority
+        ON channel_sort_priorities(sort_priority)
+    """)
+
+    # Migrate per-group channel_sort_order to global setting
+    # Use most common value across groups as the default
+    try:
+        result = conn.execute("""
+            SELECT channel_sort_order, COUNT(*) as cnt
+            FROM event_epg_groups
+            WHERE channel_sort_order IS NOT NULL
+            GROUP BY channel_sort_order
+            ORDER BY cnt DESC
+            LIMIT 1
+        """).fetchone()
+
+        if result:
+            # Map old values to new values
+            mapping = {
+                "time": "time",
+                "sport_time": "sport_league_time",
+                "league_time": "sport_league_time",
+            }
+            old_value = result["channel_sort_order"]
+            new_value = mapping.get(old_value, "time")
+            conn.execute(
+                "UPDATE settings SET channel_sort_by = ? WHERE id = 1",
+                (new_value,),
+            )
+            logger.info(
+                "[MIGRATE] Migrated channel_sort_order '%s' -> channel_sort_by '%s'",
+                old_value,
+                new_value,
+            )
+    except Exception as e:
+        logger.debug("[MIGRATE] Could not migrate channel_sort_order: %s", e)
 
 
 def _drop_stream_profile_columns(conn: sqlite3.Connection) -> None:

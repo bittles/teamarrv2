@@ -466,18 +466,8 @@ class ChannelReconciler:
 
             drift_fields = []
 
-            # Check channel number
-            if channel.channel_number and dispatcharr_channel.channel_number:
-                expected = int(channel.channel_number)
-                actual = dispatcharr_channel.channel_number
-                if expected != actual:
-                    drift_fields.append(
-                        {
-                            "field": "channel_number",
-                            "expected": expected,
-                            "actual": actual,
-                        }
-                    )
+            # Note: channel_number drift is not checked here because it's
+            # enforced during generation in _sync_channel_settings
 
             # Check tvg_id
             if channel.tvg_id and channel.tvg_id != dispatcharr_channel.tvg_id:

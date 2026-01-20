@@ -46,7 +46,8 @@ class GroupCreate(BaseModel):
     template_id: int | None = None
     channel_start_number: int | None = Field(None, ge=1)
     channel_group_id: int | None = None
-    channel_profile_ids: list[int] | None = None
+    channel_group_mode: str = "static"  # "static", "sport", "league"
+    channel_profile_ids: list[int | str] | None = None  # IDs or "{sport}", "{league}"
     duplicate_event_handling: str = "consolidate"
     channel_assignment_mode: str = "auto"
     sort_order: int = 0
@@ -88,7 +89,8 @@ class GroupUpdate(BaseModel):
     template_id: int | None = None
     channel_start_number: int | None = None
     channel_group_id: int | None = None
-    channel_profile_ids: list[int] | None = None
+    channel_group_mode: str | None = None  # "static", "sport", "league"
+    channel_profile_ids: list[int | str] | None = None  # IDs or "{sport}", "{league}"
     duplicate_event_handling: str | None = None
     channel_assignment_mode: str | None = None
     sort_order: int | None = None
@@ -150,7 +152,8 @@ class GroupResponse(BaseModel):
     template_id: int | None = None
     channel_start_number: int | None = None
     channel_group_id: int | None = None
-    channel_profile_ids: list[int] = []
+    channel_group_mode: str = "static"  # "static", "sport", "league"
+    channel_profile_ids: list[int | str] = []  # IDs or "{sport}", "{league}"
     duplicate_event_handling: str = "consolidate"
     channel_assignment_mode: str = "auto"
     sort_order: int = 0
@@ -249,7 +252,8 @@ class BulkGroupSettings(BaseModel):
     leagues: list[str] = Field(..., min_length=1)
     template_id: int | None = None
     channel_group_id: int | None = None
-    channel_profile_ids: list[int] | None = None
+    channel_group_mode: str = "static"  # "static", "sport", "league"
+    channel_profile_ids: list[int | str] | None = None  # IDs or "{sport}", "{league}"
     duplicate_event_handling: str = "consolidate"
     channel_sort_order: str = "time"
     overlap_handling: str = "add_stream"
@@ -295,7 +299,8 @@ class BulkGroupUpdateRequest(BaseModel):
     leagues: list[str] | None = None
     template_id: int | None = None
     channel_group_id: int | None = None
-    channel_profile_ids: list[int] | None = None
+    channel_group_mode: str | None = None  # "static", "sport", "league"
+    channel_profile_ids: list[int | str] | None = None  # IDs or "{sport}", "{league}"
     channel_sort_order: str | None = None
     overlap_handling: str | None = None
     # Clear flags for nullable fields
@@ -493,6 +498,7 @@ def create_group(request: GroupCreate):
             template_id=request.template_id,
             channel_start_number=request.channel_start_number,
             channel_group_id=request.channel_group_id,
+            channel_group_mode=request.channel_group_mode,
             channel_profile_ids=request.channel_profile_ids,
             duplicate_event_handling=request.duplicate_event_handling,
             channel_assignment_mode=request.channel_assignment_mode,
@@ -535,6 +541,7 @@ def create_group(request: GroupCreate):
         template_id=group.template_id,
         channel_start_number=group.channel_start_number,
         channel_group_id=group.channel_group_id,
+        channel_group_mode=group.channel_group_mode,
         channel_profile_ids=group.channel_profile_ids,
         duplicate_event_handling=group.duplicate_event_handling,
         channel_assignment_mode=group.channel_assignment_mode,
@@ -624,6 +631,7 @@ def create_groups_bulk(request: BulkGroupCreateRequest):
                     group_mode=request.settings.group_mode,
                     template_id=request.settings.template_id,
                     channel_group_id=request.settings.channel_group_id,
+                    channel_group_mode=request.settings.channel_group_mode,
                     channel_profile_ids=request.settings.channel_profile_ids,
                     duplicate_event_handling=request.settings.duplicate_event_handling,
                     channel_sort_order=request.settings.channel_sort_order,
@@ -708,6 +716,7 @@ def update_groups_bulk(request: BulkGroupUpdateRequest):
                     leagues=request.leagues,
                     template_id=request.template_id,
                     channel_group_id=request.channel_group_id,
+                    channel_group_mode=request.channel_group_mode,
                     channel_profile_ids=request.channel_profile_ids,
                     channel_sort_order=request.channel_sort_order,
                     overlap_handling=request.overlap_handling,
@@ -782,6 +791,7 @@ def get_group_by_id(group_id: int):
         template_id=group.template_id,
         channel_start_number=group.channel_start_number,
         channel_group_id=group.channel_group_id,
+        channel_group_mode=group.channel_group_mode,
         channel_profile_ids=group.channel_profile_ids,
         duplicate_event_handling=group.duplicate_event_handling,
         channel_assignment_mode=group.channel_assignment_mode,
@@ -880,6 +890,7 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
             template_id=request.template_id,
             channel_start_number=request.channel_start_number,
             channel_group_id=request.channel_group_id,
+            channel_group_mode=request.channel_group_mode,
             channel_profile_ids=request.channel_profile_ids,
             duplicate_event_handling=request.duplicate_event_handling,
             channel_assignment_mode=request.channel_assignment_mode,
@@ -944,6 +955,7 @@ def update_group_by_id(group_id: int, request: GroupUpdate):
         template_id=group.template_id,
         channel_start_number=group.channel_start_number,
         channel_group_id=group.channel_group_id,
+        channel_group_mode=group.channel_group_mode,
         channel_profile_ids=group.channel_profile_ids,
         duplicate_event_handling=group.duplicate_event_handling,
         channel_assignment_mode=group.channel_assignment_mode,

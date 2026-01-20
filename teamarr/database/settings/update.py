@@ -118,7 +118,7 @@ def update_lifecycle_settings(
     channel_create_timing: str | None = None,
     channel_delete_timing: str | None = None,
     channel_range_start: int | None = None,
-    channel_range_end: int | None = None,
+    channel_range_end: int | None | object = _NOT_PROVIDED,
 ) -> bool:
     """Update channel lifecycle settings.
 
@@ -127,7 +127,7 @@ def update_lifecycle_settings(
         channel_create_timing: When to create channels
         channel_delete_timing: When to delete channels
         channel_range_start: First auto-assigned channel number
-        channel_range_end: Last auto-assigned channel number
+        channel_range_end: Last auto-assigned channel number (None = no limit)
 
     Returns:
         True if updated
@@ -144,9 +144,10 @@ def update_lifecycle_settings(
     if channel_range_start is not None:
         updates.append("channel_range_start = ?")
         values.append(channel_range_start)
-    if channel_range_end is not None:
+    # channel_range_end: _NOT_PROVIDED = don't update, None = no limit, int = set value
+    if channel_range_end is not _NOT_PROVIDED:
         updates.append("channel_range_end = ?")
-        values.append(channel_range_end)
+        values.append(channel_range_end)  # None becomes SQL NULL
 
     if not updates:
         return False
@@ -352,6 +353,7 @@ def increment_epg_generation_counter(conn: Connection) -> int:
 
 def update_team_filter_settings(
     conn: Connection,
+    enabled: bool | None = None,
     include_teams: list[dict] | None = None,
     exclude_teams: list[dict] | None = None,
     mode: str | None = None,
@@ -362,6 +364,7 @@ def update_team_filter_settings(
 
     Args:
         conn: Database connection
+        enabled: Master toggle for team filtering
         include_teams: Teams to include (replaces existing)
         exclude_teams: Teams to exclude (replaces existing)
         mode: Filter mode ('include' or 'exclude')
@@ -373,6 +376,10 @@ def update_team_filter_settings(
     """
     updates = []
     values = []
+
+    if enabled is not None:
+        updates.append("team_filter_enabled = ?")
+        values.append(int(enabled))
 
     # Team filtering - treat empty list as clear (NULL)
     if clear_include_teams:
@@ -404,5 +411,77 @@ def update_team_filter_settings(
     cursor = conn.execute(query, values)
     if cursor.rowcount > 0:
         logger.info("[UPDATED] Team filter settings: %s", [u.split(" = ")[0] for u in updates])
+        return True
+    return False
+
+
+def update_channel_numbering_settings(
+    conn: Connection,
+    numbering_mode: str | None = None,
+    sorting_scope: str | None = None,
+    sort_by: str | None = None,
+) -> bool:
+    """Update channel numbering and sorting settings.
+
+    Args:
+        conn: Database connection
+        numbering_mode: Numbering mode ('strict_block', 'rational_block', 'strict_compact')
+        sorting_scope: Sorting scope ('per_group', 'global')
+        sort_by: Sort order ('sport_league_time', 'time', 'stream_order')
+
+    Returns:
+        True if updated
+    """
+    updates = []
+    values = []
+
+    if numbering_mode is not None:
+        # Validate mode
+        valid_modes = ("strict_block", "rational_block", "strict_compact")
+        if numbering_mode not in valid_modes:
+            logger.warning(
+                "[CHANNEL_NUM] Invalid numbering mode '%s', must be one of %s",
+                numbering_mode,
+                valid_modes,
+            )
+            return False
+        updates.append("channel_numbering_mode = ?")
+        values.append(numbering_mode)
+
+    if sorting_scope is not None:
+        # Validate scope
+        valid_scopes = ("per_group", "global")
+        if sorting_scope not in valid_scopes:
+            logger.warning(
+                "[CHANNEL_NUM] Invalid sorting scope '%s', must be one of %s",
+                sorting_scope,
+                valid_scopes,
+            )
+            return False
+        updates.append("channel_sorting_scope = ?")
+        values.append(sorting_scope)
+
+    if sort_by is not None:
+        # Validate sort_by
+        valid_sort_by = ("sport_league_time", "time", "stream_order")
+        if sort_by not in valid_sort_by:
+            logger.warning(
+                "[CHANNEL_NUM] Invalid sort_by '%s', must be one of %s",
+                sort_by,
+                valid_sort_by,
+            )
+            return False
+        updates.append("channel_sort_by = ?")
+        values.append(sort_by)
+
+    if not updates:
+        return False
+
+    query = f"UPDATE settings SET {', '.join(updates)} WHERE id = 1"
+    cursor = conn.execute(query, values)
+    if cursor.rowcount > 0:
+        logger.info(
+            "[CHANNEL_NUM] Updated settings: %s", [u.split(" = ")[0] for u in updates]
+        )
         return True
     return False

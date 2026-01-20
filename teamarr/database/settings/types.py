@@ -15,8 +15,10 @@ class DispatcharrSettings:
     username: str | None = None
     password: str | None = None
     epg_id: int | None = None
-    # None = all profiles, [] = no profiles, [1,2,...] = specific profiles
-    default_channel_profile_ids: list[int] | None = None
+    # None = all profiles, [] = no profiles
+    # Can contain: int IDs, "{sport}", "{league}" wildcards
+    # e.g., [1, 5, "{sport}"] = profiles 1, 5, plus dynamic sport profile
+    default_channel_profile_ids: list[int | str] | None = None
 
 
 @dataclass
@@ -127,9 +129,36 @@ class TeamFilterSettings:
     Groups can override this with their own include/exclude_teams settings.
     """
 
+    enabled: bool = True  # Master toggle - when False, filtering is skipped entirely
     include_teams: list[dict] | None = None
     exclude_teams: list[dict] | None = None
     mode: str = "include"  # 'include' or 'exclude'
+
+
+@dataclass
+class ChannelNumberingSettings:
+    """Channel numbering and sorting settings for AUTO groups.
+
+    Controls how channel numbers are assigned and sorted across event groups.
+
+    Numbering modes:
+    - strict_block: Reserve blocks by total_stream_count (current behavior, large gaps, minimal drift)
+    - rational_block: Reserve by actual channel count rounded to 10 (smaller gaps, low drift)
+    - strict_compact: No reservation, sequential numbers (no gaps, higher drift risk)
+
+    Sorting scopes (only for rational_block and strict_compact):
+    - per_group: Sort channels within each group
+    - global: Sort all AUTO channels across groups by sport/league/time
+
+    Sort by options (for per_group scope):
+    - sport_league_time: Sort by sport, then league, then event time
+    - time: Sort by event time only
+    - stream_order: Keep original stream order from M3U
+    """
+
+    numbering_mode: str = "strict_block"  # 'strict_block', 'rational_block', 'strict_compact'
+    sorting_scope: str = "per_group"  # 'per_group', 'global'
+    sort_by: str = "time"  # 'sport_league_time', 'time', 'stream_order'
 
 
 @dataclass
@@ -146,5 +175,8 @@ class AllSettings:
     api: APISettings = field(default_factory=APISettings)
     stream_filter: StreamFilterSettings = field(default_factory=StreamFilterSettings)
     team_filter: TeamFilterSettings = field(default_factory=TeamFilterSettings)
+    channel_numbering: ChannelNumberingSettings = field(
+        default_factory=ChannelNumberingSettings
+    )
     epg_generation_counter: int = 0
-    schema_version: int = 22
+    schema_version: int = 34

@@ -15,6 +15,7 @@ from teamarr.core import (
     TeamStats,
     Venue,
 )
+from teamarr.core.sports import normalize_sport
 from teamarr.providers.espn.client import ESPNClient
 from teamarr.providers.espn.constants import STATUS_MAP, TOURNAMENT_SPORTS
 from teamarr.providers.espn.tournament import TournamentParserMixin
@@ -593,20 +594,28 @@ class ESPNProvider(UFCParserMixin, TournamentParserMixin, SportsProvider):
         if not data:
             return []
 
-        sport = self._get_display_sport(league)
         teams = []
 
         # ESPN teams endpoint returns {"sports": [{"leagues": [{"teams": [...]}]}]}
         # or just {"teams": [...]} depending on endpoint version
         team_list = []
+        sport = None
         if "teams" in data:
             team_list = data["teams"]
         else:
             try:
+                # Extract canonical sport name from ESPN response and normalize
+                espn_sport = data["sports"][0].get("name")
+                if espn_sport:
+                    sport = normalize_sport(espn_sport)
                 team_list = data["sports"][0]["leagues"][0]["teams"]
             except (KeyError, IndexError):
                 logger.warning("[ESPN] Unexpected teams response structure for %s", league)
                 return []
+
+        # Fall back to database/heuristics only if ESPN didn't provide sport
+        if not sport:
+            sport = self._get_display_sport(league)
 
         for entry in team_list:
             # Entry may be {"team": {...}} or just {...}

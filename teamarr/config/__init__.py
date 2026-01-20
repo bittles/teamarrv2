@@ -17,15 +17,8 @@ from dotenv import load_dotenv
 
 
 def _get_base_version() -> str:
-    """Read version - prefer installed metadata, fall back to pyproject.toml."""
-    # Try installed package first (works in Docker/pip install)
-    try:
-        from importlib.metadata import version
-        return version("teamarr")
-    except Exception:
-        pass
-
-    # Fall back to pyproject.toml (works from source)
+    """Read version - prefer pyproject.toml (source of truth), fall back to installed metadata."""
+    # Try pyproject.toml first (single source of truth, works in dev and Docker)
     try:
         import tomllib
         pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
@@ -33,7 +26,14 @@ def _get_base_version() -> str:
             with open(pyproject_path, "rb") as f:
                 data = tomllib.load(f)
                 return data.get("project", {}).get("version", "0.0.0")
-    except Exception:
+    except (OSError, KeyError, ValueError):
+        pass
+
+    # Fall back to installed package metadata (pip install without source)
+    try:
+        from importlib.metadata import version
+        return version("teamarr")
+    except ImportError:
         pass
 
     return "0.0.0"
@@ -67,7 +67,7 @@ def _get_version() -> str:
 
         if sha_file.exists():
             sha = sha_file.read_text().strip()
-    except Exception:
+    except OSError:
         pass
 
     # Fallback to environment variables
@@ -96,9 +96,9 @@ def _get_version() -> str:
                             text=True,
                             cwd=base_dir,
                         ).strip()
-                    except Exception:
+                    except (subprocess.SubprocessError, OSError):
                         pass
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             pass
 
     # Build version string
@@ -175,18 +175,16 @@ class Config:
 
     @classmethod
     def get_timezone_str(cls) -> str:
-        """Get the user timezone as a string.
+        """Get the EPG timezone as a string.
+
+        This returns the user-configured epg_timezone from the database.
+        The TZ env var does NOT override this - it only affects ui_timezone.
 
         Priority:
-        1. TZ env var (if set)
-        2. Cached value from database (set at startup)
-        3. Default timezone
+        1. Cached value from database (set at startup from epg_timezone setting)
+        2. Default timezone (before DB is loaded)
         """
-        # TZ env var takes precedence
-        if cls._timezone_from_env:
-            return cls._timezone_from_env
-
-        # Use cached value from DB
+        # Use cached value from DB (user's epg_timezone setting)
         if cls._timezone_cache:
             return cls._timezone_cache
 
@@ -272,7 +270,7 @@ class Config:
             try:
                 ZoneInfo(cls._ui_timezone_from_env)
                 return cls._ui_timezone_from_env
-            except Exception:
+            except (KeyError, ValueError):
                 # Invalid timezone, fall back to EPG timezone
                 pass
         return cls.get_timezone_str()
@@ -294,7 +292,7 @@ class Config:
         try:
             ZoneInfo(cls._ui_timezone_from_env)
             return True
-        except Exception:
+        except (KeyError, ValueError):
             return False
 
 

@@ -25,18 +25,19 @@ ExceptionBehavior = Literal["consolidate", "separate", "ignore"]
 class ExceptionKeywordCreate(BaseModel):
     """Create exception keyword request."""
 
-    keywords: str = Field(
+    label: str = Field(
         ...,
         min_length=1,
-        description="Comma-separated keyword variants (e.g., 'Spanish, En Español, ESP')",
+        description="Label for channel naming and {exception_keyword} template variable (e.g., 'Spanish', 'Manningcast')",
+    )
+    match_terms: str = Field(
+        ...,
+        min_length=1,
+        description="Comma-separated terms/phrases to match in stream names (e.g., 'Spanish, En Español, (ESP)')",
     )
     behavior: ExceptionBehavior = Field(
         default="consolidate",
         description="How to handle matched streams",
-    )
-    display_name: str | None = Field(
-        None,
-        description="Display name for UI",
     )
     enabled: bool = True
 
@@ -44,21 +45,20 @@ class ExceptionKeywordCreate(BaseModel):
 class ExceptionKeywordUpdate(BaseModel):
     """Update exception keyword request."""
 
-    keywords: str | None = Field(None, min_length=1)
+    label: str | None = Field(None, min_length=1)
+    match_terms: str | None = Field(None, min_length=1)
     behavior: ExceptionBehavior | None = None
-    display_name: str | None = None
     enabled: bool | None = None
-    clear_display_name: bool = False
 
 
 class ExceptionKeywordResponse(BaseModel):
     """Exception keyword response."""
 
     id: int
-    keywords: str
-    keyword_list: list[str]
+    label: str
+    match_terms: str
+    match_term_list: list[str]
     behavior: str
-    display_name: str | None = None
     enabled: bool
     created_at: str | None = None
 
@@ -89,10 +89,10 @@ def list_keywords(
         keywords=[
             ExceptionKeywordResponse(
                 id=kw.id,
-                keywords=kw.keywords,
-                keyword_list=kw.keyword_list,
+                label=kw.label,
+                match_terms=kw.match_terms,
+                match_term_list=kw.match_term_list,
                 behavior=kw.behavior,
-                display_name=kw.display_name,
                 enabled=kw.enabled,
                 created_at=kw.created_at.isoformat() if kw.created_at else None,
             )
@@ -132,10 +132,10 @@ def get_keyword(keyword_id: int):
 
     return ExceptionKeywordResponse(
         id=keyword.id,
-        keywords=keyword.keywords,
-        keyword_list=keyword.keyword_list,
+        label=keyword.label,
+        match_terms=keyword.match_terms,
+        match_term_list=keyword.match_term_list,
         behavior=keyword.behavior,
-        display_name=keyword.display_name,
         enabled=keyword.enabled,
         created_at=keyword.created_at.isoformat() if keyword.created_at else None,
     )
@@ -157,24 +157,24 @@ def create_keyword(request: ExceptionKeywordCreate):
         with get_db() as conn:
             keyword_id = db_create_keyword(
                 conn,
-                keywords=request.keywords,
+                label=request.label,
+                match_terms=request.match_terms,
                 behavior=request.behavior,
-                display_name=request.display_name,
                 enabled=request.enabled,
             )
             keyword = db_get_keyword(conn, keyword_id)
     except sqlite3.IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Keywords '{request.keywords}' already exist",
+            detail=f"Label '{request.label}' already exists",
         ) from e
 
     return ExceptionKeywordResponse(
         id=keyword.id,
-        keywords=keyword.keywords,
-        keyword_list=keyword.keyword_list,
+        label=keyword.label,
+        match_terms=keyword.match_terms,
+        match_term_list=keyword.match_term_list,
         behavior=keyword.behavior,
-        display_name=keyword.display_name,
         enabled=keyword.enabled,
         created_at=keyword.created_at.isoformat() if keyword.created_at else None,
     )
@@ -183,6 +183,8 @@ def create_keyword(request: ExceptionKeywordCreate):
 @router.put("/{keyword_id}", response_model=ExceptionKeywordResponse)
 def update_keyword(keyword_id: int, request: ExceptionKeywordUpdate):
     """Update an exception keyword."""
+    import sqlite3
+
     from teamarr.database.exception_keywords import (
         get_keyword as db_get_keyword,
     )
@@ -190,31 +192,36 @@ def update_keyword(keyword_id: int, request: ExceptionKeywordUpdate):
         update_keyword as db_update_keyword,
     )
 
-    with get_db() as conn:
-        keyword = db_get_keyword(conn, keyword_id)
-        if not keyword:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Keyword {keyword_id} not found",
-            )
+    try:
+        with get_db() as conn:
+            keyword = db_get_keyword(conn, keyword_id)
+            if not keyword:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Keyword {keyword_id} not found",
+                )
 
-        db_update_keyword(
-            conn,
-            keyword_id,
-            keywords=request.keywords,
-            behavior=request.behavior,
-            display_name=request.display_name,
-            enabled=request.enabled,
-            clear_display_name=request.clear_display_name,
-        )
-        keyword = db_get_keyword(conn, keyword_id)
+            db_update_keyword(
+                conn,
+                keyword_id,
+                label=request.label,
+                match_terms=request.match_terms,
+                behavior=request.behavior,
+                enabled=request.enabled,
+            )
+            keyword = db_get_keyword(conn, keyword_id)
+    except sqlite3.IntegrityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Label '{request.label}' already exists",
+        ) from e
 
     return ExceptionKeywordResponse(
         id=keyword.id,
-        keywords=keyword.keywords,
-        keyword_list=keyword.keyword_list,
+        label=keyword.label,
+        match_terms=keyword.match_terms,
+        match_term_list=keyword.match_term_list,
         behavior=keyword.behavior,
-        display_name=keyword.display_name,
         enabled=keyword.enabled,
         created_at=keyword.created_at.isoformat() if keyword.created_at else None,
     )

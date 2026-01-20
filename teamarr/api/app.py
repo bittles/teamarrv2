@@ -23,6 +23,7 @@ from teamarr.api.routes import (
     migration,
     presets,
     settings,
+    sort_priorities,
     stats,
     teams,
     templates,
@@ -280,6 +281,7 @@ def create_app() -> FastAPI:
     app.include_router(cache.router, prefix="/api/v1", tags=["Cache"])
     app.include_router(channels.router, prefix="/api/v1/channels", tags=["Channels"])
     app.include_router(settings.router, prefix="/api/v1", tags=["Settings"])
+    app.include_router(sort_priorities.router, prefix="/api/v1", tags=["Sort Priorities"])
     app.include_router(stats.router, prefix="/api/v1/stats", tags=["Stats"])
     app.include_router(variables.router, prefix="/api/v1", tags=["Variables"])
     app.include_router(dispatcharr.router, prefix="/api/v1", tags=["Dispatcharr"])

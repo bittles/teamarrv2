@@ -8,7 +8,8 @@ export interface DispatcharrSettings {
   password: string | null
   epg_id: number | null
   // null = all profiles (default), [] = no profiles, [1,2,...] = specific profiles
-  default_channel_profile_ids: number[] | null
+  // Can include wildcards: "{sport}", "{league}"
+  default_channel_profile_ids: (number | string)[] | null
 }
 
 export interface LifecycleSettings {
@@ -69,12 +70,14 @@ export interface TeamFilterEntry {
 }
 
 export interface TeamFilterSettings {
+  enabled: boolean
   include_teams: TeamFilterEntry[] | null
   exclude_teams: TeamFilterEntry[] | null
   mode: "include" | "exclude"
 }
 
 export interface TeamFilterSettingsUpdate {
+  enabled?: boolean
   include_teams?: TeamFilterEntry[] | null
   exclude_teams?: TeamFilterEntry[] | null
   mode?: "include" | "exclude"
@@ -82,12 +85,25 @@ export interface TeamFilterSettingsUpdate {
   clear_exclude_teams?: boolean
 }
 
+export interface ChannelNumberingSettings {
+  numbering_mode: "strict_block" | "rational_block" | "strict_compact"
+  sorting_scope: "per_group" | "global"
+  sort_by: "sport_league_time" | "time" | "stream_order"
+}
+
+export interface ChannelNumberingSettingsUpdate {
+  numbering_mode?: "strict_block" | "rational_block" | "strict_compact"
+  sorting_scope?: "per_group" | "global"
+  sort_by?: "sport_league_time" | "time" | "stream_order"
+}
+
+
 export interface ExceptionKeyword {
   id: number
-  keywords: string
-  keyword_list: string[]
+  label: string
+  match_terms: string
+  match_term_list: string[]
   behavior: "consolidate" | "separate" | "ignore"
-  display_name: string | null
   enabled: boolean
   created_at: string | null
 }
@@ -105,6 +121,7 @@ export interface AllSettings {
   durations: DurationSettings
   reconciliation: ReconciliationSettings
   team_filter?: TeamFilterSettings
+  channel_numbering?: ChannelNumberingSettings
   epg_generation_counter: number
   schema_version: number
   // UI timezone info (read-only, from environment or fallback to epg_timezone)
@@ -263,9 +280,9 @@ export async function getExceptionKeywords(
 }
 
 export async function createExceptionKeyword(data: {
-  keywords: string
+  label: string
+  match_terms: string
   behavior: string
-  display_name?: string
   enabled?: boolean
 }): Promise<ExceptionKeyword> {
   return api.post("/keywords", data)
@@ -274,9 +291,9 @@ export async function createExceptionKeyword(data: {
 export async function updateExceptionKeyword(
   id: number,
   data: Partial<{
-    keywords: string
+    label: string
+    match_terms: string
     behavior: string
-    display_name: string | null
     enabled: boolean
   }>
 ): Promise<ExceptionKeyword> {
@@ -286,3 +303,15 @@ export async function updateExceptionKeyword(
 export async function deleteExceptionKeyword(id: number): Promise<void> {
   return api.delete(`/keywords/${id}`)
 }
+
+// Channel Numbering Settings API
+export async function getChannelNumberingSettings(): Promise<ChannelNumberingSettings> {
+  return api.get("/settings/channel-numbering")
+}
+
+export async function updateChannelNumberingSettings(
+  data: ChannelNumberingSettingsUpdate
+): Promise<ChannelNumberingSettings> {
+  return api.put("/settings/channel-numbering", data)
+}
+

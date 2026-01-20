@@ -208,6 +208,15 @@ class M3UManager:
         # Resolve group_name from group_id if needed
         if group_name is None and group_id is not None:
             group_name = self.get_group_name(group_id)
+            if group_name is None:
+                # Group ID was provided but group no longer exists (deleted/renamed)
+                # Return empty list instead of silently fetching ALL streams
+                logger.warning(
+                    "[M3U] Group ID %d no longer exists in Dispatcharr - "
+                    "group may have been deleted or renamed. Returning empty stream list.",
+                    group_id,
+                )
+                return []
 
         # Build query params
         params = ["page_size=1000"]

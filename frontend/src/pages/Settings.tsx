@@ -15,6 +15,9 @@ import {
   Trash2,
   Download,
   Upload,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react"
 import {
   ChannelProfileSelector,
@@ -47,8 +50,11 @@ import {
   useExceptionKeywords,
   useCreateExceptionKeyword,
   useDeleteExceptionKeyword,
+  useChannelNumberingSettings,
+  useUpdateChannelNumberingSettings,
 } from "@/hooks/useSettings"
 import { TeamPicker } from "@/components/TeamPicker"
+import { SortPriorityManager } from "@/components/SortPriorityManager"
 import { getLeagues } from "@/api/teams"
 import { downloadBackup, restoreBackup } from "@/api/backup"
 import { useQuery } from "@tanstack/react-query"
@@ -62,6 +68,7 @@ import type {
   DisplaySettings,
   ReconciliationSettings,
   TeamFilterSettings,
+  ChannelNumberingSettings,
 } from "@/api/settings"
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -104,12 +111,13 @@ function CronPreview({ expression }: { expression: string }) {
   )
 }
 
-type SettingsTab = "general" | "teams" | "events" | "epg" | "integrations" | "advanced"
+type SettingsTab = "general" | "teams" | "events" | "channels" | "epg" | "integrations" | "advanced"
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "teams", label: "Teams" },
   { id: "events", label: "Event Groups" },
+  { id: "channels", label: "Channel Management" },
   { id: "epg", label: "EPG Generation" },
   { id: "integrations", label: "Integrations" },
   { id: "advanced", label: "Advanced" },
@@ -154,6 +162,11 @@ export function Settings() {
   // Team filter settings
   const { data: teamFilterData } = useTeamFilterSettings()
   const updateTeamFilter = useUpdateTeamFilterSettings()
+
+  // Channel numbering settings
+  const { data: channelNumberingData } = useChannelNumberingSettings()
+  const updateChannelNumbering = useUpdateChannelNumberingSettings()
+
   const { data: leaguesData } = useQuery({
     queryKey: ["cache", "leagues"],
     queryFn: () => getLeagues(),
@@ -168,22 +181,35 @@ export function Settings() {
   const [display, setDisplay] = useState<DisplaySettings | null>(null)
   const [reconciliation, setReconciliation] = useState<ReconciliationSettings | null>(null)
   const [teamFilter, setTeamFilter] = useState<TeamFilterSettings>({
+    enabled: true,
     include_teams: null,
     exclude_teams: null,
     mode: "include",
   })
-  const [newKeyword, setNewKeyword] = useState({ keywords: "", behavior: "consolidate" })
+  const [channelNumbering, setChannelNumbering] = useState<ChannelNumberingSettings>({
+    numbering_mode: "strict_block",
+    sorting_scope: "per_group",
+    sort_by: "time",
+  })
+  const [newKeyword, setNewKeyword] = useState({ label: "", match_terms: "", behavior: "consolidate" })
+  const [editingKeyword, setEditingKeyword] = useState<{ id: number; label: string; match_terms: string } | null>(null)
+
+  // Local state for channel range inputs (allows free typing)
+  const [channelRangeStart, setChannelRangeStart] = useState("")
+  const [channelRangeEnd, setChannelRangeEnd] = useState("")
 
   // Selected profile IDs for display (converted from API format)
-  const [selectedProfileIds, setSelectedProfileIds] = useState<number[]>([])
+  const [selectedProfileIds, setSelectedProfileIds] = useState<(number | string)[]>([])
 
   // Backup & Restore state
   const [isRestoring, setIsRestoring] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const initializedRef = useRef(false)
 
-  // Initialize local state from settings
+  // Initialize local state from settings (only once on initial load)
   useEffect(() => {
-    if (settings) {
+    if (settings && !initializedRef.current) {
+      initializedRef.current = true
       setDispatcharr({
         enabled: settings.dispatcharr.enabled,
         url: settings.dispatcharr.url,
@@ -211,6 +237,23 @@ export function Settings() {
       setTeamFilter(teamFilterData)
     }
   }, [teamFilterData])
+
+  // Sync channel numbering state when data loads
+  useEffect(() => {
+    if (channelNumberingData) {
+      setChannelNumbering(channelNumberingData)
+    }
+  }, [channelNumberingData])
+
+  // Sync channel range inputs from lifecycle on initial load only
+  const channelRangeInitializedRef = useRef(false)
+  useEffect(() => {
+    if (lifecycle && !channelRangeInitializedRef.current) {
+      channelRangeInitializedRef.current = true
+      setChannelRangeStart(lifecycle.channel_range_start?.toString() ?? "101")
+      setChannelRangeEnd(lifecycle.channel_range_end?.toString() ?? "")
+    }
+  }, [lifecycle])
 
   // Convert API profile IDs to display IDs when profiles are loaded
   useEffect(() => {
@@ -322,20 +365,6 @@ export function Settings() {
     }
   }
 
-  // Combined save for event group settings
-  const handleSaveEventGroupSettings = async () => {
-    try {
-      const promises: Promise<unknown>[] = []
-      if (epg) promises.push(updateEPG.mutateAsync(epg))
-      if (lifecycle) promises.push(updateLifecycle.mutateAsync(lifecycle))
-      if (reconciliation) promises.push(updateReconciliation.mutateAsync(reconciliation))
-      await Promise.all(promises)
-      toast.success("Settings saved")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save")
-    }
-  }
-
   // Combined save for scheduler settings
   const handleSaveSchedulerSettings = async () => {
     try {
@@ -349,14 +378,34 @@ export function Settings() {
     }
   }
 
+  const handleSaveChannelNumbering = async () => {
+    try {
+      // Save both channel numbering AND lifecycle settings (channel range is in lifecycle)
+      const promises: Promise<unknown>[] = [
+        updateChannelNumbering.mutateAsync(channelNumbering),
+      ]
+      if (lifecycle) {
+        promises.push(updateLifecycle.mutateAsync(lifecycle))
+      }
+      await Promise.all(promises)
+      toast.success("Channel numbering settings saved")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save")
+    }
+  }
+
   const handleAddKeyword = async () => {
-    if (!newKeyword.keywords.trim()) {
-      toast.error("Please enter at least one keyword")
+    if (!newKeyword.label.trim()) {
+      toast.error("Please enter a label")
+      return
+    }
+    if (!newKeyword.match_terms.trim()) {
+      toast.error("Please enter at least one match term")
       return
     }
     try {
       await createKeyword.mutateAsync(newKeyword)
-      setNewKeyword({ keywords: "", behavior: "consolidate" })
+      setNewKeyword({ label: "", match_terms: "", behavior: "consolidate" })
       toast.success("Keyword added")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add keyword")
@@ -369,6 +418,29 @@ export function Settings() {
       toast.success("Keyword deleted")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete keyword")
+    }
+  }
+
+  const handleSaveKeywordEdit = async () => {
+    if (!editingKeyword || !editingKeyword.label.trim()) {
+      toast.error("Label cannot be empty")
+      return
+    }
+    if (!editingKeyword.match_terms.trim()) {
+      toast.error("Match terms cannot be empty")
+      return
+    }
+    try {
+      await fetch(`/api/v1/keywords/${editingKeyword.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: editingKeyword.label, match_terms: editingKeyword.match_terms }),
+      })
+      keywordsQuery.refetch()
+      setEditingKeyword(null)
+      toast.success("Keyword updated")
+    } catch (err) {
+      toast.error("Failed to update keyword")
     }
   }
 
@@ -651,10 +723,13 @@ export function Settings() {
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Channel Lifecycle</CardTitle>
+          <CardTitle>Event Matching</CardTitle>
+          <CardDescription>
+            Configure how streams are matched to sporting events
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="event-lookahead">Event Lookahead</Label>
               <Select
@@ -675,44 +750,6 @@ export function Settings() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="create-timing">Channel Create Timing</Label>
-              <Select
-                id="create-timing"
-                value={lifecycle?.channel_create_timing ?? "same_day"}
-                onChange={(e) =>
-                  lifecycle && setLifecycle({ ...lifecycle, channel_create_timing: e.target.value })
-                }
-              >
-                <option value="stream_available">When stream available</option>
-                <option value="same_day">Same day</option>
-                <option value="day_before">Day before</option>
-                <option value="2_days_before">2 days before</option>
-                <option value="3_days_before">3 days before</option>
-                <option value="1_week_before">1 week before</option>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="delete-timing">Channel Delete Timing</Label>
-              <Select
-                id="delete-timing"
-                value={lifecycle?.channel_delete_timing ?? "day_after"}
-                onChange={(e) =>
-                  lifecycle && setLifecycle({ ...lifecycle, channel_delete_timing: e.target.value })
-                }
-              >
-                <option value="stream_removed">When stream removed</option>
-                <option value="6_hours_after">6 hours after end of event</option>
-                <option value="same_day">Same day</option>
-                <option value="day_after">Day after</option>
-                <option value="2_days_after">2 days after</option>
-                <option value="3_days_after">3 days after</option>
-                <option value="1_week_after">1 week after</option>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
               <Label htmlFor="duplicate-handling">Duplicate Handling</Label>
               <Select
                 id="duplicate-handling"
@@ -725,47 +762,27 @@ export function Settings() {
                 <option value="separate">Separate</option>
                 <option value="ignore">Ignore</option>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="channel-range-start">Channel Range Start</Label>
-              <Input
-                id="channel-range-start"
-                type="number"
-                min={1}
-                value={lifecycle?.channel_range_start ?? 101}
-                onChange={(e) =>
-                  lifecycle &&
-                  setLifecycle({
-                    ...lifecycle,
-                    channel_range_start: parseInt(e.target.value) || 101,
-                  })
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="channel-range-end">Channel Range End</Label>
-              <Input
-                id="channel-range-end"
-                type="number"
-                min={1}
-                value={lifecycle?.channel_range_end ?? ""}
-                onChange={(e) =>
-                  lifecycle &&
-                  setLifecycle({
-                    ...lifecycle,
-                    channel_range_end: e.target.value ? parseInt(e.target.value) : null,
-                  })
-                }
-                placeholder="No limit"
-              />
+              <p className="text-xs text-muted-foreground">
+                How to handle multiple streams for the same event
+              </p>
             </div>
           </div>
 
           <Button
-            onClick={handleSaveEventGroupSettings}
-            disabled={updateEPG.isPending || updateLifecycle.isPending || updateReconciliation.isPending}
+            onClick={async () => {
+              try {
+                const promises: Promise<unknown>[] = []
+                if (epg) promises.push(updateEPG.mutateAsync(epg))
+                if (reconciliation) promises.push(updateReconciliation.mutateAsync(reconciliation))
+                await Promise.all(promises)
+                toast.success("Event matching settings saved")
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Failed to save")
+              }
+            }}
+            disabled={updateEPG.isPending || updateReconciliation.isPending}
           >
-            {(updateEPG.isPending || updateLifecycle.isPending || updateReconciliation.isPending) ? (
+            {(updateEPG.isPending || updateReconciliation.isPending) ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
             ) : (
               <Save className="h-4 w-4 mr-1" />
@@ -781,7 +798,7 @@ export function Settings() {
         <CardHeader>
           <CardTitle>Exception Keywords</CardTitle>
           <CardDescription>
-            Streams matching these keywords get special handling during consolidation
+            Streams matching these terms get special handling during consolidation. The label is used for channel naming and the {"{exception_keyword}"} template variable.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -789,15 +806,48 @@ export function Settings() {
             <table className="w-full text-sm">
               <thead className="bg-muted">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">Keywords (comma-separated)</th>
+                  <th className="px-3 py-2 text-left font-medium w-32">Label</th>
+                  <th className="px-3 py-2 text-left font-medium">Match Terms (comma-separated)</th>
                   <th className="px-3 py-2 text-left font-medium w-40">Behavior</th>
-                  <th className="px-3 py-2 w-12"></th>
+                  <th className="px-3 py-2 w-20"></th>
                 </tr>
               </thead>
               <tbody>
                 {keywordsQuery.data?.keywords.map((kw) => (
                   <tr key={kw.id} className="border-t">
-                    <td className="px-3 py-2">{kw.keywords}</td>
+                    <td className="px-3 py-2">
+                      {editingKeyword?.id === kw.id ? (
+                        <Input
+                          value={editingKeyword.label}
+                          onChange={(e) => setEditingKeyword({ ...editingKeyword, label: e.target.value })}
+                          className="h-8"
+                          autoFocus
+                          placeholder="Label"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveKeywordEdit()
+                            if (e.key === "Escape") setEditingKeyword(null)
+                          }}
+                        />
+                      ) : (
+                        <span className="font-medium">{kw.label}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {editingKeyword?.id === kw.id ? (
+                        <Input
+                          value={editingKeyword.match_terms}
+                          onChange={(e) => setEditingKeyword({ ...editingKeyword, match_terms: e.target.value })}
+                          className="h-8"
+                          placeholder="Terms to match"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveKeywordEdit()
+                            if (e.key === "Escape") setEditingKeyword(null)
+                          }}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">{kw.match_terms}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <Select
                         value={kw.behavior}
@@ -816,6 +866,7 @@ export function Settings() {
                           }
                         }}
                         className="w-40 h-8"
+                        disabled={editingKeyword?.id === kw.id}
                       >
                         <option value="consolidate">Sub-Consolidate</option>
                         <option value="separate">Separate</option>
@@ -823,20 +874,54 @@ export function Settings() {
                       </Select>
                     </td>
                     <td className="px-3 py-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteKeyword(kw.id)}
-                        disabled={deleteKeyword.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <div className="flex gap-1">
+                        {editingKeyword?.id === kw.id ? (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleSaveKeywordEdit}
+                              title="Save"
+                            >
+                              <Check className="h-4 w-4 text-green-600" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditingKeyword(null)}
+                              title="Cancel"
+                            >
+                              <X className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditingKeyword({ id: kw.id, label: kw.label, match_terms: kw.match_terms })}
+                              title="Edit"
+                            >
+                              <Pencil className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteKeyword(kw.id)}
+                              disabled={deleteKeyword.isPending}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {(!keywordsQuery.data?.keywords || keywordsQuery.data.keywords.length === 0) && (
                   <tr>
-                    <td colSpan={3} className="px-3 py-4 text-center text-muted-foreground">
+                    <td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">
                       No exception keywords defined
                     </td>
                   </tr>
@@ -847,9 +932,15 @@ export function Settings() {
 
           <div className="flex gap-2">
             <Input
-              placeholder="e.g., Spanish, En Español, ESP"
-              value={newKeyword.keywords}
-              onChange={(e) => setNewKeyword({ ...newKeyword, keywords: e.target.value })}
+              placeholder="Label (e.g., Spanish)"
+              value={newKeyword.label}
+              onChange={(e) => setNewKeyword({ ...newKeyword, label: e.target.value })}
+              className="w-32"
+            />
+            <Input
+              placeholder="Match terms (e.g., Spanish, En Español, ESP)"
+              value={newKeyword.match_terms}
+              onChange={(e) => setNewKeyword({ ...newKeyword, match_terms: e.target.value })}
               className="flex-1"
             />
             <Select
@@ -885,17 +976,13 @@ export function Settings() {
             </div>
             <div className="flex items-center gap-2">
               <Label htmlFor="team-filter-enabled" className="text-sm">
-                {(teamFilter.include_teams?.length || teamFilter.exclude_teams?.length) ? "Enabled" : "Disabled"}
+                {teamFilter.enabled ? "Enabled" : "Disabled"}
               </Label>
               <Switch
                 id="team-filter-enabled"
-                checked={!!(teamFilter.include_teams?.length || teamFilter.exclude_teams?.length)}
+                checked={teamFilter.enabled}
                 onCheckedChange={(checked) => {
-                  if (!checked) {
-                    // Disable - clear all teams (send [] to clear, not null)
-                    setTeamFilter({ include_teams: [], exclude_teams: [], mode: "include" })
-                  }
-                  // If enabling, user will add teams below
+                  setTeamFilter({ ...teamFilter, enabled: checked })
                 }}
               />
             </div>
@@ -954,13 +1041,15 @@ export function Settings() {
           <div className="flex justify-between items-center">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">
-                {!(teamFilter.include_teams?.length || teamFilter.exclude_teams?.length)
-                  ? "No filter active. All events will be matched."
-                  : teamFilter.mode === "include"
-                    ? `Only events involving ${teamFilter.include_teams?.length} selected team(s) will be matched.`
-                    : `Events involving ${teamFilter.exclude_teams?.length} selected team(s) will be excluded.`}
+                {!teamFilter.enabled
+                  ? "Team filtering is disabled. All events will be matched."
+                  : !(teamFilter.include_teams?.length || teamFilter.exclude_teams?.length)
+                    ? "No teams selected. All events will be matched."
+                    : teamFilter.mode === "include"
+                      ? `Only events involving ${teamFilter.include_teams?.length} selected team(s) will be matched.`
+                      : `Events involving ${teamFilter.exclude_teams?.length} selected team(s) will be excluded.`}
               </p>
-              {(teamFilter.include_teams?.length || teamFilter.exclude_teams?.length) ? (
+              {teamFilter.enabled && (teamFilter.include_teams?.length || teamFilter.exclude_teams?.length) ? (
                 <p className="text-xs text-muted-foreground italic">
                   Filter only applies to leagues where you've made selections.
                 </p>
@@ -969,6 +1058,7 @@ export function Settings() {
             <Button
               onClick={() => {
                 updateTeamFilter.mutate({
+                  enabled: teamFilter.enabled,
                   include_teams: teamFilter.include_teams,
                   exclude_teams: teamFilter.exclude_teams,
                   mode: teamFilter.mode,
@@ -988,6 +1078,391 @@ export function Settings() {
               )}
               Save Default Filter
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+      </>
+      )}
+
+      {/* Channel Management Tab */}
+      {activeTab === "channels" && (
+      <>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">Channel Management</h2>
+        <p className="text-sm text-muted-foreground">Configure channel lifecycle, numbering, and sorting</p>
+      </div>
+
+      {/* Channel Lifecycle */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Channel Lifecycle</CardTitle>
+          <CardDescription>
+            Configure when channels are created and deleted for event groups
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="ch-create-timing">Channel Create Timing</Label>
+              <Select
+                id="ch-create-timing"
+                value={lifecycle?.channel_create_timing ?? "same_day"}
+                onChange={(e) =>
+                  lifecycle && setLifecycle({ ...lifecycle, channel_create_timing: e.target.value })
+                }
+              >
+                <option value="stream_available">When stream available</option>
+                <option value="same_day">Same day</option>
+                <option value="day_before">Day before</option>
+                <option value="2_days_before">2 days before</option>
+                <option value="3_days_before">3 days before</option>
+                <option value="1_week_before">1 week before</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                When to create channels before events
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ch-delete-timing">Channel Delete Timing</Label>
+              <Select
+                id="ch-delete-timing"
+                value={lifecycle?.channel_delete_timing ?? "day_after"}
+                onChange={(e) =>
+                  lifecycle && setLifecycle({ ...lifecycle, channel_delete_timing: e.target.value })
+                }
+              >
+                <option value="stream_removed">When stream removed</option>
+                <option value="6_hours_after">6 hours after end of event</option>
+                <option value="same_day">Same day</option>
+                <option value="day_after">Day after</option>
+                <option value="2_days_after">2 days after</option>
+                <option value="3_days_after">3 days after</option>
+                <option value="1_week_after">1 week after</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                When to delete channels after events
+              </p>
+            </div>
+          </div>
+
+          <Button
+            onClick={async () => {
+              if (!lifecycle) return
+              try {
+                await updateLifecycle.mutateAsync(lifecycle)
+                toast.success("Channel lifecycle settings saved")
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Failed to save")
+              }
+            }}
+            disabled={updateLifecycle.isPending}
+          >
+            {updateLifecycle.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-1" />
+            )}
+            Save
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Channel Numbering - Cascading Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Channel Numbering</CardTitle>
+          <CardDescription>
+            Configure how channel numbers are assigned and sorted for Auto groups
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Channel Range */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="ch-range-start-num">Channel Range Start</Label>
+              <Input
+                id="ch-range-start-num"
+                type="number"
+                min={1}
+                value={channelRangeStart}
+                onChange={(e) => setChannelRangeStart(e.target.value)}
+                onBlur={(e) => {
+                  if (!lifecycle) return
+                  const val = parseInt(e.target.value)
+                  if (!isNaN(val) && val >= 1) {
+                    setChannelRangeStart(val.toString())
+                    setLifecycle({ ...lifecycle, channel_range_start: val })
+                  } else {
+                    // Reset to current lifecycle value if invalid
+                    setChannelRangeStart(lifecycle.channel_range_start?.toString() ?? "101")
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                First channel number for auto-assigned channels
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ch-range-end-num">Channel Range End</Label>
+              <Input
+                id="ch-range-end-num"
+                type="number"
+                min={1}
+                value={channelRangeEnd}
+                onChange={(e) => setChannelRangeEnd(e.target.value)}
+                onBlur={(e) => {
+                  if (!lifecycle) return
+                  if (e.target.value === "") {
+                    setChannelRangeEnd("")
+                    setLifecycle({ ...lifecycle, channel_range_end: null })
+                  } else {
+                    const val = parseInt(e.target.value)
+                    if (!isNaN(val) && val >= 1) {
+                      setChannelRangeEnd(val.toString())
+                      setLifecycle({ ...lifecycle, channel_range_end: val })
+                    } else {
+                      setChannelRangeEnd(lifecycle.channel_range_end?.toString() ?? "")
+                    }
+                  }
+                }}
+                placeholder="No limit"
+              />
+              <p className="text-xs text-muted-foreground">
+                Last channel number (leave empty for no limit)
+              </p>
+            </div>
+          </div>
+
+          {/* Level 1: Numbering Mode - Tab-style layout */}
+          <div className="space-y-0">
+            <Label className="text-sm font-medium mb-3 block">Numbering Mode</Label>
+            <div className="grid grid-cols-3 gap-0">
+              {/* Strict Block */}
+              <label className={`flex flex-col p-3 border-2 cursor-pointer transition-colors rounded-tl-lg ${
+                channelNumbering.numbering_mode === "strict_block"
+                  ? "border-primary border-b-0 bg-muted/30 relative z-10"
+                  : "border-border border-b-primary/20 hover:border-muted-foreground/50 bg-background"
+              }`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <input
+                    type="radio"
+                    name="numbering-mode"
+                    value="strict_block"
+                    checked={channelNumbering.numbering_mode === "strict_block"}
+                    onChange={() =>
+                      setChannelNumbering({
+                        ...channelNumbering,
+                        numbering_mode: "strict_block",
+                        sorting_scope: "per_group",
+                      })
+                    }
+                    className="accent-primary"
+                  />
+                  <span className="font-medium text-sm">Strict Block Reservation</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-tight">
+                  Reserves blocks by total theoretical stream count per group. Large gaps, minimal drift. Best for stable assignments. Per-group sorting only.
+                </p>
+              </label>
+
+              {/* Rational Block */}
+              <label className={`flex flex-col p-3 border-2 border-l-0 cursor-pointer transition-colors ${
+                channelNumbering.numbering_mode === "rational_block"
+                  ? "border-primary border-b-0 bg-muted/30 relative z-10"
+                  : "border-border border-b-primary/20 hover:border-muted-foreground/50 bg-background"
+              }`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <input
+                    type="radio"
+                    name="numbering-mode"
+                    value="rational_block"
+                    checked={channelNumbering.numbering_mode === "rational_block"}
+                    onChange={() =>
+                      setChannelNumbering({
+                        ...channelNumbering,
+                        numbering_mode: "rational_block",
+                      })
+                    }
+                    className="accent-primary"
+                  />
+                  <span className="font-medium text-sm">Rational Block Reservation</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-tight">
+                  Reserves blocks by actual channel count. Smaller gaps, low drift. Balanced approach.
+                </p>
+              </label>
+
+              {/* Strict Compact */}
+              <label className={`flex flex-col p-3 border-2 border-l-0 cursor-pointer transition-colors rounded-tr-lg ${
+                channelNumbering.numbering_mode === "strict_compact"
+                  ? "border-primary border-b-0 bg-muted/30 relative z-10"
+                  : "border-border border-b-primary/20 hover:border-muted-foreground/50 bg-background"
+              }`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <input
+                    type="radio"
+                    name="numbering-mode"
+                    value="strict_compact"
+                    checked={channelNumbering.numbering_mode === "strict_compact"}
+                    onChange={() =>
+                      setChannelNumbering({
+                        ...channelNumbering,
+                        numbering_mode: "strict_compact",
+                      })
+                    }
+                    className="accent-primary"
+                  />
+                  <span className="font-medium text-sm">Strict Compact Numbering</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-tight">
+                  No reservation, sequential numbers. No gaps, higher drift risk. Maximizes density.
+                </p>
+              </label>
+            </div>
+
+            {/* Sub-options panel - connected to tabs */}
+            <div className="rounded-b-lg border-2 border-primary border-t-0 bg-muted/30 p-4 space-y-4 -mt-[2px]">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <span>Sorting Options</span>
+              </div>
+
+            {/* For strict_block: just show sort by options */}
+            {channelNumbering.numbering_mode === "strict_block" && (
+              <div className="space-y-3">
+                <Label className="text-sm">Sort Channels By</Label>
+                <div className="flex gap-3">
+                  <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-md border cursor-pointer transition-colors ${
+                    channelNumbering.sort_by === "time" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                  }`}>
+                    <input type="radio" name="sort-by-strict" value="time"
+                      checked={channelNumbering.sort_by === "time"}
+                      onChange={() => setChannelNumbering({ ...channelNumbering, sort_by: "time" })}
+                      className="accent-primary" />
+                    <span className="text-sm">Event Time</span>
+                  </label>
+                  <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-md border cursor-pointer transition-colors ${
+                    channelNumbering.sort_by === "sport_league_time" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                  }`}>
+                    <input type="radio" name="sort-by-strict" value="sport_league_time"
+                      checked={channelNumbering.sort_by === "sport_league_time"}
+                      onChange={() => setChannelNumbering({ ...channelNumbering, sort_by: "sport_league_time" })}
+                      className="accent-primary" />
+                    <span className="text-sm">Sport → League → Time</span>
+                  </label>
+                  <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-md border cursor-pointer transition-colors ${
+                    channelNumbering.sort_by === "stream_order" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                  }`}>
+                    <input type="radio" name="sort-by-strict" value="stream_order"
+                      checked={channelNumbering.sort_by === "stream_order"}
+                      onChange={() => setChannelNumbering({ ...channelNumbering, sort_by: "stream_order" })}
+                      className="accent-primary" />
+                    <span className="text-sm">Stream Order</span>
+                  </label>
+                </div>
+                {channelNumbering.sort_by === "sport_league_time" && (
+                  <SortPriorityManager currentSortBy="sport_league_time" showWhenSortBy="sport_league_time" />
+                )}
+              </div>
+            )}
+
+            {/* For rational_block and strict_compact: show scope then sort by */}
+            {(channelNumbering.numbering_mode === "rational_block" || channelNumbering.numbering_mode === "strict_compact") && (
+              <div className="space-y-4">
+                {/* Sorting Scope */}
+                <div className="space-y-3">
+                  <Label className="text-sm">Sorting Scope</Label>
+                  <div className="flex gap-3">
+                    <label className={`flex-1 flex flex-col p-2.5 rounded-md border cursor-pointer transition-colors ${
+                      channelNumbering.sorting_scope === "per_group" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <input type="radio"
+                          name={`scope-${channelNumbering.numbering_mode}`}
+                          value="per_group"
+                          checked={channelNumbering.sorting_scope === "per_group"}
+                          onChange={() => setChannelNumbering({ ...channelNumbering, sorting_scope: "per_group" })}
+                          className="accent-primary" />
+                        <span className="text-sm font-medium">Per Group</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-5">Sort within each event group separately</span>
+                    </label>
+                    <label className={`flex-1 flex flex-col p-2.5 rounded-md border cursor-pointer transition-colors ${
+                      channelNumbering.sorting_scope === "global" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <input type="radio"
+                          name={`scope-${channelNumbering.numbering_mode}`}
+                          value="global"
+                          checked={channelNumbering.sorting_scope === "global"}
+                          onChange={() => setChannelNumbering({ ...channelNumbering, sorting_scope: "global", sort_by: "sport_league_time" })}
+                          className="accent-primary" />
+                        <span className="text-sm font-medium">Global</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-5">Sort all channels by sport/league priority</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Sort By - only for per_group scope */}
+                {channelNumbering.sorting_scope === "per_group" && (
+                  <div className="space-y-3">
+                    <Label className="text-sm">Sort Channels By</Label>
+                    <div className="flex gap-3">
+                      <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-md border cursor-pointer transition-colors ${
+                        channelNumbering.sort_by === "time" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                      }`}>
+                        <input type="radio" name={`sort-by-${channelNumbering.numbering_mode}`} value="time"
+                          checked={channelNumbering.sort_by === "time"}
+                          onChange={() => setChannelNumbering({ ...channelNumbering, sort_by: "time" })}
+                          className="accent-primary" />
+                        <span className="text-sm">Event Time</span>
+                      </label>
+                      <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-md border cursor-pointer transition-colors ${
+                        channelNumbering.sort_by === "sport_league_time" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                      }`}>
+                        <input type="radio" name={`sort-by-${channelNumbering.numbering_mode}`} value="sport_league_time"
+                          checked={channelNumbering.sort_by === "sport_league_time"}
+                          onChange={() => setChannelNumbering({ ...channelNumbering, sort_by: "sport_league_time" })}
+                          className="accent-primary" />
+                        <span className="text-sm">Sport → League → Time</span>
+                      </label>
+                      <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-md border cursor-pointer transition-colors ${
+                        channelNumbering.sort_by === "stream_order" ? "border-primary bg-background" : "border-transparent bg-background/50 hover:bg-background"
+                      }`}>
+                        <input type="radio" name={`sort-by-${channelNumbering.numbering_mode}`} value="stream_order"
+                          checked={channelNumbering.sort_by === "stream_order"}
+                          onChange={() => setChannelNumbering({ ...channelNumbering, sort_by: "stream_order" })}
+                          className="accent-primary" />
+                        <span className="text-sm">Stream Order</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sort Priority Manager - show when using sport_league_time sorting */}
+                {(channelNumbering.sorting_scope === "global" || channelNumbering.sort_by === "sport_league_time") && (
+                  <SortPriorityManager currentSortBy="sport_league_time" showWhenSortBy="sport_league_time" />
+                )}
+              </div>
+            )}
+          </div>
+          </div>
+
+          <div className="pt-4 border-t">
+            <Button
+              onClick={handleSaveChannelNumbering}
+              disabled={updateChannelNumbering.isPending || updateLifecycle.isPending}
+            >
+              {(updateChannelNumbering.isPending || updateLifecycle.isPending) ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-1" />
+              )}
+              Save
+            </Button>
+            <p className="text-xs text-muted-foreground mt-2">
+              Channel numbers will be updated on the next EPG generation.
+            </p>
           </div>
         </CardContent>
       </Card>

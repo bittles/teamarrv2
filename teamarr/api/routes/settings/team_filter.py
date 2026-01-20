@@ -25,6 +25,7 @@ def get_team_filter():
         settings = get_team_filter_settings(conn)
 
     return TeamFilterSettingsModel(
+        enabled=settings.enabled,
         include_teams=settings.include_teams,
         exclude_teams=settings.exclude_teams,
         mode=settings.mode,
@@ -47,6 +48,7 @@ def update_team_filter(update: TeamFilterSettingsUpdate):
     with get_db() as conn:
         update_team_filter_settings(
             conn,
+            enabled=update.enabled,
             include_teams=update.include_teams,
             exclude_teams=update.exclude_teams,
             mode=update.mode,
@@ -56,6 +58,7 @@ def update_team_filter(update: TeamFilterSettingsUpdate):
         settings = get_team_filter_settings(conn)
 
     return TeamFilterSettingsModel(
+        enabled=settings.enabled,
         include_teams=settings.include_teams,
         exclude_teams=settings.exclude_teams,
         mode=settings.mode,

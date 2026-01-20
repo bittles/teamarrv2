@@ -36,7 +36,7 @@ import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RichTooltip } from "@/components/ui/rich-tooltip"
 import { FilterSelect } from "@/components/ui/filter-select"
-import { cn, getLeagueDisplayName } from "@/lib/utils"
+import { cn, getLeagueDisplayName, getSportEmoji } from "@/lib/utils"
 import {
   useTeams,
   useUpdateTeam,
@@ -47,22 +47,6 @@ import type { Team } from "@/api/teams"
 import { getLeagues } from "@/api/teams"
 import { statsApi } from "@/api/stats"
 import { useQuery } from "@tanstack/react-query"
-
-// Sport emoji mapping
-const SPORT_EMOJIS: Record<string, string> = {
-  basketball: "🏀",
-  football: "🏈",
-  baseball: "⚾",
-  hockey: "🏒",
-  soccer: "⚽",
-  mma: "🥊",
-  boxing: "🥊",
-  default: "🏆",
-}
-
-function getSportEmoji(sport: string): string {
-  return SPORT_EMOJIS[sport.toLowerCase()] || SPORT_EMOJIS.default
-}
 
 type ActiveFilter = "" | "active" | "inactive"
 type SortColumn = "team" | "league" | "sport" | "template" | "channel" | "status" | null

@@ -1,6 +1,11 @@
 """Stream filtering service for event EPG groups.
 
-Provides regex-based stream filtering and team name extraction.
+Provides regex-based stream filtering with consolidated eligibility checks.
+All built-in filtering (placeholder detection, unsupported sports, event patterns)
+is controlled by the skip_builtin flag. When skip_builtin=False (default), streams
+must pass all eligibility checks to reach matching. When skip_builtin=True, only
+user-defined regex filters apply.
+
 Uses the 'regex' module if available for advanced patterns,
 otherwise falls back to standard 're' module.
 """
@@ -12,6 +17,8 @@ logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from re import Pattern
 
+from teamarr.utilities.constants import PLACEHOLDER_PATTERNS, SPORT_HINT_PATTERNS
+
 # Try to import 'regex' module which supports advanced features
 try:
     import regex
@@ -21,6 +28,76 @@ try:
 except ImportError:
     REGEX_MODULE = re
     SUPPORTS_VARIABLE_LOOKBEHIND = False
+
+
+# Sports that can be detected but are not currently supported by Teamarr
+# These sports don't have team-based schedules we can match against
+UNSUPPORTED_SPORTS = frozenset([
+    "Swimming",
+    "Diving",
+    "Gymnastics",
+    "Wrestling",
+    "Track and Field",
+    "Tennis",
+    "Golf",
+])
+
+
+def is_placeholder(text: str) -> bool:
+    """Check if stream name matches placeholder patterns.
+
+    Placeholders are filler streams with no real event info,
+    like "ESPN+ 45" or "Coming Soon".
+
+    Args:
+        text: Stream name to check
+
+    Returns:
+        True if stream is a placeholder
+    """
+    if not text:
+        return True
+
+    text_lower = text.lower().strip()
+
+    # Check against placeholder patterns
+    for pattern in PLACEHOLDER_PATTERNS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return True
+
+    # Additional check: very short names with just numbers
+    if re.match(r"^[\d\s\-:]+$", text_lower):
+        return True
+
+    return False
+
+
+def detect_sport_hint(text: str) -> str | None:
+    """Detect sport type from stream name.
+
+    Scans for sport keywords anywhere in the stream name.
+
+    Examples:
+        "US (BTN+) | Ice Hockey (W): Minnesota at Wisconsin" → "Hockey"
+        "ESPN: NFL Sunday Football" → "Football"
+        "Swimming: 100m Freestyle" → "Swimming"
+
+    Args:
+        text: Stream name to check
+
+    Returns:
+        Sport name if detected, None otherwise
+    """
+    if not text:
+        return None
+
+    text_lower = text.lower()
+
+    for pattern, sport in SPORT_HINT_PATTERNS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return sport
+
+    return None
 
 
 # Builtin patterns for identifying EVENT streams (inclusion approach)
@@ -118,8 +195,10 @@ class FilterResult:
     total_input: int = 0
     filtered_include: int = 0  # Didn't match include pattern
     filtered_exclude: int = 0  # Matched exclude pattern
-    filtered_not_event: int = 0  # Didn't look like an event stream
+    filtered_not_event: int = 0  # Didn't look like an event stream (require_event_pattern)
     filtered_stale: int = 0  # Marked as stale in Dispatcharr
+    filtered_placeholder: int = 0  # Matched placeholder patterns
+    filtered_unsupported_sport: int = 0  # Detected unsupported sport (swimming, diving, etc.)
     passed_count: int = 0
 
 
@@ -207,10 +286,16 @@ class StreamFilter:
         """Apply filters and return filtered streams with stats.
 
         Filter order:
-        1. Stale filter - skip streams marked as stale in Dispatcharr
-        2. Event pattern check (if enabled) - stream must look like an event
-        3. Include filter (if enabled)
-        4. Exclude filter (if enabled)
+        1. Stale filter - always applied, skip streams marked as stale
+        2. Built-in eligibility checks (if not skip_builtin):
+           a. Placeholder detection - reject streams matching placeholder patterns
+           b. Unsupported sport detection - reject swimming, diving, gymnastics, etc.
+           c. Event pattern check (if require_event_pattern enabled) - require vs/@/date/time
+        3. Include filter (if enabled) - user-defined, stream must match
+        4. Exclude filter (if enabled) - user-defined, stream must NOT match
+
+        The skip_builtin flag controls all built-in eligibility checks (2a, 2b, 2c).
+        When skip_builtin=True, only stale filtering and user-defined regex filters apply.
 
         Args:
             streams: List of stream dicts with at least 'id' and 'name' keys
@@ -223,7 +308,7 @@ class StreamFilter:
         for stream in streams:
             name = stream.get("name", "")
 
-            # Stale filter: skip streams marked as stale in Dispatcharr
+            # 1. Stale filter: always skip streams marked as stale in Dispatcharr
             if stream.get("is_stale", False):
                 logger.debug(
                     "[FILTER] Skipping stale stream: %s (id=%s)",
@@ -233,19 +318,43 @@ class StreamFilter:
                 result.filtered_stale += 1
                 continue
 
-            # Event pattern filter: stream must look like an event (vs, @, date/time)
-            if self._event_pattern:
-                if not self._event_pattern.search(name):
-                    result.filtered_not_event += 1
+            # 2. Built-in eligibility checks (controlled by skip_builtin)
+            if not self.config.skip_builtin:
+                # 2a. Placeholder detection: reject streams matching placeholder patterns
+                if is_placeholder(name):
+                    logger.debug(
+                        "[FILTER] Placeholder detected: %s (id=%s)",
+                        name[:50],
+                        stream.get("id"),
+                    )
+                    result.filtered_placeholder += 1
                     continue
 
-            # Include filter: stream must match
+                # 2b. Unsupported sport detection
+                sport = detect_sport_hint(name)
+                if sport and sport in UNSUPPORTED_SPORTS:
+                    logger.debug(
+                        "[FILTER] Unsupported sport '%s': %s (id=%s)",
+                        sport,
+                        name[:50],
+                        stream.get("id"),
+                    )
+                    result.filtered_unsupported_sport += 1
+                    continue
+
+                # 2c. Event pattern filter: stream must look like an event (vs, @, date/time)
+                if self._event_pattern:
+                    if not self._event_pattern.search(name):
+                        result.filtered_not_event += 1
+                        continue
+
+            # 3. Include filter: stream must match (user-defined, always applies if enabled)
             if self._include_pattern:
                 if not self._include_pattern.search(name):
                     result.filtered_include += 1
                     continue
 
-            # Exclude filter: stream must NOT match
+            # 4. Exclude filter: stream must NOT match (user-defined, always applies if enabled)
             if self._exclude_pattern:
                 if self._exclude_pattern.search(name):
                     result.filtered_exclude += 1

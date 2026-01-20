@@ -6,6 +6,7 @@ Settings are organized into logical groups for easier management.
 
 from .read import (
     get_all_settings,
+    get_channel_numbering_settings,
     get_dispatcharr_settings,
     get_display_settings,
     get_epg_settings,
@@ -17,6 +18,7 @@ from .read import (
 from .types import (
     AllSettings,
     APISettings,
+    ChannelNumberingSettings,
     DispatcharrSettings,
     DisplaySettings,
     DurationSettings,
@@ -29,6 +31,7 @@ from .types import (
 )
 from .update import (
     increment_epg_generation_counter,
+    update_channel_numbering_settings,
     update_dispatcharr_settings,
     update_display_settings,
     update_duration_settings,
@@ -51,6 +54,7 @@ __all__ = [
     "APISettings",
     "StreamFilterSettings",
     "TeamFilterSettings",
+    "ChannelNumberingSettings",
     "AllSettings",
     # Read operations
     "get_all_settings",
@@ -61,6 +65,7 @@ __all__ = [
     "get_display_settings",
     "get_stream_filter_settings",
     "get_team_filter_settings",
+    "get_channel_numbering_settings",
     # Update operations
     "update_dispatcharr_settings",
     "update_scheduler_settings",
@@ -70,5 +75,6 @@ __all__ = [
     "update_duration_settings",
     "update_display_settings",
     "update_team_filter_settings",
+    "update_channel_numbering_settings",
     "increment_epg_generation_counter",
 ]

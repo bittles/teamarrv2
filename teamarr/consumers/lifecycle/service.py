@@ -13,6 +13,7 @@ from typing import Any
 from teamarr.core import Event
 from teamarr.templates import ContextBuilder, TemplateResolver
 
+from .dynamic_resolver import DynamicResolver
 from .timing import ChannelLifecycleManager
 from .types import (
     ChannelCreationResult,
@@ -121,6 +122,9 @@ class ChannelLifecycleService:
         # Template engine
         self._context_builder = ContextBuilder(sports_service)
         self._resolver = TemplateResolver()
+
+        # Dynamic group/profile resolver
+        self._dynamic_resolver = DynamicResolver()
 
     @property
     def dispatcharr_enabled(self) -> bool:
@@ -258,26 +262,35 @@ class ChannelLifecycleService:
 
         result = StreamProcessResult()
 
+        # Clear logo cache at start of batch to avoid stale references
+        # Logos may have been deleted/changed in Dispatcharr since last run
+        if self._logo_manager:
+            self._logo_manager.clear_cache()
+
         try:
             with self._db_factory() as conn:
+                # Initialize dynamic resolver for this batch
+                self._dynamic_resolver.initialize(self._db_factory, conn)
+
                 # Get group settings
                 group_id = group_config.get("id")
                 duplicate_mode = group_config.get("duplicate_event_handling", "consolidate")
 
-                channel_group_id = group_config.get("channel_group_id")
+                # Channel group settings - now supports dynamic modes
+                static_channel_group_id = group_config.get("channel_group_id")
+                channel_group_mode = group_config.get("channel_group_mode", "static")
 
-                # Parse profile IDs from group config
+                # Parse profile IDs from group config (may contain wildcards like "{sport}", "{league}")
                 # Returns None if not configured, [] if explicitly empty, [1,2,...] if set
                 raw_profile_ids = group_config.get("channel_profile_ids")
-                channel_profile_ids = self._parse_profile_ids(raw_profile_ids)
 
                 # Fallback to default profiles from settings ONLY if group hasn't configured
                 # (raw value is None/missing). If group explicitly set [] for no profiles, use that.
-                if raw_profile_ids is None and not channel_profile_ids:
+                if raw_profile_ids is None:
                     from teamarr.database.settings import get_dispatcharr_settings
 
                     dispatcharr_settings = get_dispatcharr_settings(conn)
-                    channel_profile_ids = dispatcharr_settings.default_channel_profile_ids
+                    raw_profile_ids = dispatcharr_settings.default_channel_profile_ids
 
                 for matched in matched_streams:
                     stream = matched.get("stream", {})
@@ -419,6 +432,23 @@ class ChannelLifecycleService:
                         # cross_group_result is None means: no existing channel found
                         # and not add_only mode, so fall through to create new channel
 
+                    # Resolve dynamic channel group and profiles for this event
+                    event_sport = getattr(event, "sport", None)
+                    event_league = getattr(event, "league", None)
+
+                    resolved_channel_group_id = self._dynamic_resolver.resolve_channel_group(
+                        mode=channel_group_mode,
+                        static_group_id=static_channel_group_id,
+                        event_sport=event_sport,
+                        event_league=event_league,
+                    )
+
+                    resolved_channel_profile_ids = self._dynamic_resolver.resolve_channel_profiles(
+                        profile_ids=raw_profile_ids,
+                        event_sport=event_sport,
+                        event_league=event_league,
+                    )
+
                     # Create new channel
                     channel_result = self._create_channel(
                         conn=conn,
@@ -427,8 +457,8 @@ class ChannelLifecycleService:
                         group_config=group_config,
                         template=template,
                         matched_keyword=matched_keyword,
-                        channel_group_id=channel_group_id,
-                        channel_profile_ids=channel_profile_ids,
+                        channel_group_id=resolved_channel_group_id,
+                        channel_profile_ids=resolved_channel_profile_ids,
                     )
 
                     if channel_result.success:
@@ -534,18 +564,17 @@ class ChannelLifecycleService:
         event_id = event.id
         event_provider = getattr(event, "provider", "espn")
 
-        # First try to find channel with matching keyword
-        existing = None
-        if matched_keyword:
-            existing = find_any_channel_for_event(
-                conn=conn,
-                event_id=event_id,
-                event_provider=event_provider,
-                exclude_group_id=group_id,
-                exception_keyword=matched_keyword,
-            )
+        # First try to find channel with matching keyword (or no keyword)
+        existing = find_any_channel_for_event(
+            conn=conn,
+            event_id=event_id,
+            event_provider=event_provider,
+            exclude_group_id=group_id,
+            exception_keyword=matched_keyword,  # None for non-keyword streams
+        )
 
-        # If no keyword match, find any channel for the event
+        # If no exact match, fall back to any channel for the event
+        # This allows non-keyword streams to use keyword channels as last resort
         if not existing:
             existing = find_any_channel_for_event(
                 conn=conn,
@@ -859,8 +888,8 @@ class ChannelLifecycleService:
         # Calculate delete time
         delete_time = self._timing_manager.calculate_delete_time(event)
 
-        # Resolve logo URL from template (supports template variables)
-        logo_url = self._resolve_logo_url(event, template)
+        # Resolve logo URL from template (supports template variables including {exception_keyword})
+        logo_url = self._resolve_logo_url(event, template, matched_keyword)
 
         # Create in Dispatcharr
         dispatcharr_channel_id = None
@@ -995,6 +1024,11 @@ class ChannelLifecycleService:
         Uses full template engine (141 variables) when service is available.
         Otherwise falls back to default "Away @ Home" format.
 
+        Supports {exception_keyword} variable in templates. If the template
+        includes {exception_keyword}, the value is substituted directly.
+        If not included and a keyword is present, it's auto-appended as
+        "(Keyword)" to maintain backward compatibility.
+
         Args:
             event: Event data
             template: Can be dict, EventTemplateConfig dataclass, or None
@@ -1011,26 +1045,75 @@ class ChannelLifecycleService:
                 # Dict with event_channel_name
                 name_format = template.get("event_channel_name")
 
+        # Build extra variables for template resolution
+        # Always include exception_keyword - resolves to "" if None (graceful disappear)
+        extra_vars = {
+            "exception_keyword": exception_keyword.title() if exception_keyword else "",
+        }
+
         if name_format:
-            # Resolve using full template engine
+            # Check if template uses {exception_keyword} - if so, don't auto-append
+            template_uses_keyword = "{exception_keyword}" in name_format
+
+            # Resolve using full template engine with extra variables
             # Unknown variables stay literal (e.g., {bad_var}) so user can identify issues
-            base_name = self._resolve_template(name_format, event)
+            base_name = self._resolve_template(name_format, event, extra_vars)
+
+            # Clean up empty wrappers when {exception_keyword} resolves to ""
+            # e.g., "Team A @ Team B ()" → "Team A @ Team B"
+            base_name = self._clean_empty_wrappers(base_name)
+
+            # Auto-append keyword only if template didn't use {exception_keyword}
+            if exception_keyword and not template_uses_keyword:
+                return f"{base_name} ({exception_keyword.title()})"
+
+            return base_name
         else:
             # Default format: "Away @ Home"
             home_name = event.home_team.short_name if event.home_team else "Home"
             away_name = event.away_team.short_name if event.away_team else "Away"
             base_name = f"{away_name} @ {home_name}"
 
-        # Append keyword if present
-        if exception_keyword:
-            return f"{base_name} ({exception_keyword.title()})"
+            # Append keyword if present (default format doesn't support template vars)
+            if exception_keyword:
+                return f"{base_name} ({exception_keyword.title()})"
 
-        return base_name
+            return base_name
+
+    def _clean_empty_wrappers(self, text: str) -> str:
+        """Clean up empty wrappers left when variables resolve to empty string.
+
+        Removes:
+        - Empty parentheses: () []
+        - Trailing separators: " - ", " | ", " : "
+        - Multiple consecutive spaces
+        - Leading/trailing whitespace
+
+        Examples:
+            "Team A @ Team B ()" → "Team A @ Team B"
+            "Team A @ Team B []" → "Team A @ Team B"
+            "Team A @ Team B - " → "Team A @ Team B"
+            "Team A  @  Team B" → "Team A @ Team B"
+        """
+        import re
+
+        # Remove empty parentheses and brackets (with optional surrounding space)
+        text = re.sub(r"\s*\(\s*\)", "", text)
+        text = re.sub(r"\s*\[\s*\]", "", text)
+
+        # Remove trailing separators
+        text = re.sub(r"\s*[-|:]\s*$", "", text)
+
+        # Collapse multiple spaces into one
+        text = re.sub(r"\s{2,}", " ", text)
+
+        return text.strip()
 
     def _resolve_logo_url(
         self,
         event: Event,
         template,
+        exception_keyword: str | None = None,
     ) -> str | None:
         """Resolve logo URL from template.
 
@@ -1040,6 +1123,7 @@ class ChannelLifecycleService:
         Args:
             event: Event data
             template: Can be dict, EventTemplateConfig dataclass, or None
+            exception_keyword: Optional keyword for {exception_keyword} variable
         """
         logo_url = None
         if template:
@@ -1055,23 +1139,38 @@ class ChannelLifecycleService:
             # Resolve template variables if present
             # Unknown variables stay literal (e.g., {bad_var}) so user can identify issues
             if "{" in logo_url:
-                return self._resolve_template(logo_url, event)
+                extra_vars = {
+                    "exception_keyword": exception_keyword.title() if exception_keyword else "",
+                }
+                return self._resolve_template(logo_url, event, extra_vars)
             return logo_url
 
         return None
 
-    def _resolve_template(self, template_str: str, event: Event) -> str:
+    def _resolve_template(
+        self,
+        template_str: str,
+        event: Event,
+        extra_variables: dict[str, str] | None = None,
+    ) -> str:
         """Resolve template string using full template engine.
 
-        Supports all 141 template variables.
+        Supports all 141+ template variables plus optional extra variables.
 
         Args:
             template_str: Template string with {variable} placeholders
             event: Event to extract context from
+            extra_variables: Optional dict of additional variables to resolve
+                (e.g., {"exception_keyword": "Spanish"})
 
         Returns:
             Resolved string with variables replaced
         """
+        # Handle extra variables first (simple replacement)
+        if extra_variables:
+            for var_name, value in extra_variables.items():
+                template_str = template_str.replace(f"{{{var_name}}}", value)
+
         context = self._context_builder.build_for_event(
             event=event,
             team_id=event.home_team.id if event.home_team else "",
@@ -1121,18 +1220,13 @@ class ChannelLifecycleService:
         | Source              | Dispatcharr Field    | Handling                    |
         |---------------------|---------------------|-----------------------------|
         | template            | name                | Template variable resolution|
-        | group.channel_start | channel_number      | Range validation/reassign   |
+        | managed_channels    | channel_number      | DB is source of truth       |
         | group               | channel_group_id    | Simple compare              |
         | current_stream      | streams             | M3U ID lookup               |
         | group               | channel_profile_ids | Add/remove via profile API  |
         | template            | logo_id             | Upload/update if different  |
         | event_id            | tvg_id              | Ensures EPG matching        |
         """
-        from teamarr.database.channel_numbers import (
-            get_group_channel_range,
-            get_next_channel_number,
-            validate_channel_in_range,
-        )
         from teamarr.database.channels import (
             log_channel_history,
             update_managed_channel,
@@ -1162,42 +1256,30 @@ class ChannelLifecycleService:
                 db_updates["channel_name"] = expected_name
                 changes_made.append(f"name: {current_channel.name} → {expected_name}")
 
-            # 2. Check channel number - enforce on every generation
-            # Assign if missing, reassign if out of range
+            # 2. Check channel number - Teamarr DB is source of truth
+            # Handle channel numbers that may be floats as strings (e.g., "8121.0")
+            expected_number = int(float(existing.channel_number)) if existing.channel_number else None
             current_number = (
-                int(current_channel.channel_number) if current_channel.channel_number else None
+                int(float(current_channel.channel_number)) if current_channel.channel_number else None
             )
-            if group_id:
-                needs_number = False
-                reason = ""
+            if expected_number and expected_number != current_number:
+                update_data["channel_number"] = expected_number
+                changes_made.append(f"number: {current_number} → {expected_number}")
 
-                if not current_number:
-                    # No number assigned - assign one
-                    needs_number = True
-                    reason = "no number assigned"
-                elif not validate_channel_in_range(conn, group_id, current_number):
-                    # Channel is out of range - reassign
-                    needs_number = True
-                    reason = "out of range"
+            # 3. Check channel_group_id (supports dynamic sport/league resolution)
+            channel_group_mode = group_config.get("channel_group_mode", "static")
+            static_group_id = group_config.get("channel_group_id")
+            event_sport = getattr(event, "sport", None)
+            event_league = getattr(event, "league", None)
 
-                if needs_number:
-                    new_number = get_next_channel_number(conn, group_id, auto_assign=False)
-                    if new_number:
-                        update_data["channel_number"] = new_number
-                        db_updates["channel_number"] = new_number
-                        changes_made.append(
-                            f"number: {current_number} → {new_number} ({reason})"
-                        )
+            # Resolve dynamic group ID (creates group in Dispatcharr if needed)
+            new_group_id = self._dynamic_resolver.resolve_channel_group(
+                mode=channel_group_mode,
+                static_group_id=static_group_id,
+                event_sport=event_sport,
+                event_league=event_league,
+            )
 
-                        # Log assignment
-                        range_start, range_end = get_group_channel_range(conn, group_id)
-                        logger.info(
-                            f"Channel '{existing.channel_name}' number assigned: "
-                            f"{current_number} → {new_number} (range {range_start}-{range_end}, {reason})"
-                        )
-
-            # 3. Check channel_group_id
-            new_group_id = group_config.get("channel_group_id")
             old_group_id = current_channel.channel_group_id
             if new_group_id != old_group_id:
                 update_data["channel_group_id"] = new_group_id
@@ -1247,27 +1329,32 @@ class ChannelLifecycleService:
             if db_updates:
                 update_managed_channel(conn, existing.id, db_updates)
 
-            # 7. Sync channel_profile_ids
+            # 7. Sync channel_profile_ids (supports dynamic {sport}/{league} resolution)
             # Dispatcharr profile semantics (commit 6b873be):
             #   [] = NO profiles
             #   [0] = ALL profiles (sentinel)
             #   [1, 2, ...] = specific profile IDs
             raw_group_profiles = group_config.get("channel_profile_ids")
-            group_profile_ids = self._parse_profile_ids(raw_group_profiles)
             stored_profile_ids = self._parse_profile_ids(
                 getattr(existing, "channel_profile_ids", None)
             )
 
-            # Determine effective profile IDs to use
-            # None (not configured) → default to [0] (all profiles)
-            # [] (explicitly no profiles) → use []
-            # [1, 2, ...] (specific) → use those
-            effective_profile_ids = group_profile_ids if raw_group_profiles is not None else [0]
+            # Resolve dynamic profile IDs (expands "{sport}" and "{league}" wildcards)
+            if raw_group_profiles is not None:
+                resolved_profile_ids = self._dynamic_resolver.resolve_channel_profiles(
+                    profile_ids=raw_group_profiles,
+                    event_sport=event_sport,
+                    event_league=event_league,
+                )
+                effective_profile_ids = resolved_profile_ids if resolved_profile_ids else []
+            else:
+                # None (not configured) → default to [0] (all profiles)
+                effective_profile_ids = [0]
 
             logger.debug(
                 f"Channel '{existing.channel_name}' profile sync: "
-                f"raw={raw_group_profiles}, parsed={group_profile_ids}, "
-                f"stored={stored_profile_ids}, effective={effective_profile_ids}"
+                f"raw={raw_group_profiles}, resolved={effective_profile_ids}, "
+                f"stored={stored_profile_ids}"
             )
 
             # Check if profiles changed
@@ -1311,13 +1398,20 @@ class ChannelLifecycleService:
                 )
 
             # 8. Sync logo - handles both updates and removals
-            logo_url = self._resolve_logo_url(event, template)
+            logo_url = self._resolve_logo_url(event, template, matched_keyword)
             current_logo_id = getattr(existing, "dispatcharr_logo_id", None)
             stored_logo_url = getattr(existing, "logo_url", None)
 
             if logo_url and self._logo_manager:
                 # Logo is set - check if needs update
-                if logo_url != stored_logo_url:
+                # Also trigger if logo_id is missing (initial upload may have failed)
+                needs_logo_update = logo_url != stored_logo_url or not current_logo_id
+                if needs_logo_update:
+                    reason = "URL changed" if logo_url != stored_logo_url else "missing logo_id"
+                    logger.debug(
+                        "[LIFECYCLE] Logo sync for '%s': %s (stored=%s, new=%s, logo_id=%s)",
+                        existing.channel_name, reason, stored_logo_url, logo_url, current_logo_id
+                    )
                     with self._dispatcharr_lock:
                         # Upload new logo
                         logo_result = self._logo_manager.upload(
@@ -1923,13 +2017,13 @@ class ChannelLifecycleService:
 
                 # Sort by current channel number to maintain relative order
                 sorted_channels = sorted(
-                    channels, key=lambda c: int(c.channel_number) if c.channel_number else 9999
+                    channels, key=lambda c: int(float(c.channel_number)) if c.channel_number else 9999
                 )
 
                 # Reassign to compact range
                 next_number = range_start
                 for channel in sorted_channels:
-                    current_number = int(channel.channel_number) if channel.channel_number else None
+                    current_number = int(float(channel.channel_number)) if channel.channel_number else None
 
                     if current_number == next_number:
                         # Already at correct position
@@ -2076,14 +2170,14 @@ class ChannelLifecycleService:
                         continue
 
                     sorted_channels = sorted(
-                        channels, key=lambda c: int(c.channel_number) if c.channel_number else 9999
+                        channels, key=lambda c: int(float(c.channel_number)) if c.channel_number else 9999
                     )
 
                     # Reassign to ideal range
                     next_number = ideal_start
                     for channel in sorted_channels:
                         current_num = (
-                            int(channel.channel_number) if channel.channel_number else None
+                            int(float(channel.channel_number)) if channel.channel_number else None
                         )
 
                         if current_num == next_number:

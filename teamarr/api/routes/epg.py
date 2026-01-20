@@ -100,21 +100,39 @@ def generate_epg(
         result.duration_seconds,
     )
 
+    # Fetch actual match stats from database
+    match_stats = MatchStats(
+        streams_fetched=0,
+        streams_filtered=0,
+        streams_eligible=0,
+        streams_matched=0,
+        streams_unmatched=0,
+        streams_cached=0,
+        match_rate=0.0,
+    )
+    if result.run_id:
+        from teamarr.database.stats import get_match_stats_summary
+
+        with get_db() as conn:
+            stats = get_match_stats_summary(conn, run_id=result.run_id)
+            totals = stats.get("totals", {})
+            match_stats = MatchStats(
+                streams_fetched=totals.get("fetched", 0),
+                streams_filtered=0,  # Not tracked separately
+                streams_eligible=totals.get("fetched", 0),
+                streams_matched=totals.get("matched", 0),
+                streams_unmatched=totals.get("unmatched", 0),
+                streams_cached=totals.get("cached", 0),
+                match_rate=totals.get("match_rate", 0.0),
+            )
+
     return EPGGenerateResponse(
         programmes_count=result.programmes_total,
         teams_processed=result.teams_processed,
         events_processed=result.groups_programmes,
         duration_seconds=result.duration_seconds,
         run_id=result.run_id,
-        match_stats=MatchStats(
-            streams_fetched=0,
-            streams_filtered=0,
-            streams_eligible=0,
-            streams_matched=0,
-            streams_unmatched=0,
-            streams_cached=0,
-            match_rate=0.0,
-        ),
+        match_stats=match_stats,
     )
 
 
@@ -211,6 +229,21 @@ def generate_epg_stream():
             )
 
             if result.success:
+                # Fetch match stats from database
+                match_stats = {}
+                if result.run_id:
+                    from teamarr.database.stats import get_match_stats_summary
+
+                    with get_db() as conn:
+                        stats = get_match_stats_summary(conn, run_id=result.run_id)
+                        totals = stats.get("totals", {})
+                        match_stats = {
+                            "streams_fetched": totals.get("fetched", 0),
+                            "streams_matched": totals.get("matched", 0),
+                            "streams_unmatched": totals.get("unmatched", 0),
+                            "match_rate": totals.get("match_rate", 0.0),
+                        }
+
                 complete_generation(
                     {
                         "success": True,
@@ -219,6 +252,7 @@ def generate_epg_stream():
                         "groups_processed": result.groups_processed,
                         "duration_seconds": result.duration_seconds,
                         "run_id": result.run_id,
+                        "match_stats": match_stats,
                     }
                 )
             else:

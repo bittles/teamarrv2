@@ -159,6 +159,12 @@ class StreamMatcher:
         generation: int | None = None,
         custom_regex_teams: str | None = None,
         custom_regex_teams_enabled: bool = False,
+        custom_regex_date: str | None = None,
+        custom_regex_date_enabled: bool = False,
+        custom_regex_time: str | None = None,
+        custom_regex_time_enabled: bool = False,
+        days_ahead: int | None = None,
+        shared_events: dict[str, list[Event]] | None = None,
     ):
         """Initialize the matcher.
 
@@ -173,7 +179,14 @@ class StreamMatcher:
             user_tz: User timezone for date calculations
             generation: Cache generation counter (if None, will be fetched/incremented)
             custom_regex_teams: Custom regex pattern for extracting team names
-            custom_regex_teams_enabled: Whether custom regex is enabled
+            custom_regex_teams_enabled: Whether custom regex for teams is enabled
+            custom_regex_date: Custom regex pattern for extracting date
+            custom_regex_date_enabled: Whether custom regex for date is enabled
+            custom_regex_time: Custom regex pattern for extracting time
+            custom_regex_time_enabled: Whether custom regex for time is enabled
+            days_ahead: Days to look ahead for events (if None, loaded from settings)
+            shared_events: Shared events cache dict (keyed by "league:date") to reuse
+                           across multiple matchers in a single generation run
         """
         self._service = service
         self._db_factory = db_factory
@@ -184,11 +197,29 @@ class StreamMatcher:
         self._sport_durations = sport_durations or {}
         self._user_tz = user_tz or get_user_timezone()
 
-        # Custom regex configuration
+        # Load days_ahead from settings if not provided
+        if days_ahead is None:
+            with db_factory() as conn:
+                row = conn.execute(
+                    "SELECT event_match_days_ahead FROM settings WHERE id = 1"
+                ).fetchone()
+                days_ahead = row["event_match_days_ahead"] if row and row["event_match_days_ahead"] else 3
+        self._days_ahead = days_ahead
+
+        # Custom regex configuration - create if any pattern is enabled
+        has_custom_regex = (
+            (custom_regex_teams_enabled and custom_regex_teams) or
+            (custom_regex_date_enabled and custom_regex_date) or
+            (custom_regex_time_enabled and custom_regex_time)
+        )
         self._custom_regex = CustomRegexConfig(
             teams_pattern=custom_regex_teams,
             teams_enabled=custom_regex_teams_enabled,
-        ) if custom_regex_teams_enabled and custom_regex_teams else None
+            date_pattern=custom_regex_date,
+            date_enabled=custom_regex_date_enabled,
+            time_pattern=custom_regex_time,
+            time_enabled=custom_regex_time_enabled,
+        ) if has_custom_regex else None
 
         # Initialize cache
         self._cache = StreamMatchCache(db_factory)
@@ -197,11 +228,15 @@ class StreamMatcher:
         self._generation_provided = generation is not None
 
         # Initialize sub-matchers
-        self._team_matcher = TeamMatcher(service, self._cache)
+        self._team_matcher = TeamMatcher(service, self._cache, days_ahead=self._days_ahead)
         self._event_matcher = EventCardMatcher(service, self._cache)
 
         # League event types cache
         self._league_event_types: dict[str, str] = {}
+
+        # Shared events cache (cross-matcher in a single generation run)
+        # Keys are "league:date" strings, values are lists of events
+        self._shared_events = shared_events
 
         # Prefetched events (populated in match_all for multi-league matching)
         self._prefetched_events: dict[str, list[Event]] | None = None
@@ -211,6 +246,7 @@ class StreamMatcher:
         streams: list[dict],
         target_date: date,
         progress_callback: Callable | None = None,
+        status_callback: Callable[[str], None] | None = None,
     ) -> BatchMatchResult:
         """Match all streams to events.
 
@@ -218,6 +254,7 @@ class StreamMatcher:
             streams: List of dicts with 'id' and 'name' keys
             target_date: Date to match events for
             progress_callback: Optional callback(current, total, stream_name, matched)
+            status_callback: Optional callback(status_message) for status updates
 
         Returns:
             BatchMatchResult with all results
@@ -240,7 +277,7 @@ class StreamMatcher:
         # Prefetch events for multi-league matching (significant performance boost)
         # This fetches events ONCE for all streams instead of per-stream
         if len(self._search_leagues) > 1:
-            self._prefetch_events(target_date)
+            self._prefetch_events(target_date, status_callback=status_callback)
         else:
             self._prefetched_events = None
 
@@ -283,7 +320,11 @@ class StreamMatcher:
 
         return result
 
-    def _prefetch_events(self, target_date: date) -> None:
+    def _prefetch_events(
+        self,
+        target_date: date,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> None:
         """Prefetch all events for multi-league matching.
 
         For groups with many leagues (e.g., 278 leagues), fetching events
@@ -291,31 +332,85 @@ class StreamMatcher:
         Instead, fetch all events ONCE and reuse for all streams.
 
         Strategy:
-        - Today: always fetch from API (ESPN only)
-        - Past dates: use full 30-day cache for matching
+        - Check shared_events first (reuse from prior groups in same generation)
+        - Past dates: always cache-only (for stats tracking)
+        - Today: fetch from API for group's configured leagues, cache for others
+        - Future days: fetch from API ONLY for group's configured leagues
         - TSDB leagues: always cache-only
+
+        Results are stored in shared_events (if provided) for reuse by subsequent
+        matchers within the same generation run.
+
+        Args:
+            target_date: Target date for event matching
+            status_callback: Optional callback(status_message) for status updates
         """
         self._prefetched_events = {}
         total_events = 0
+        shared_hits = 0
+        service_calls = 0
 
-        for league in self._search_leagues:
+        total_leagues = len(self._search_leagues)
+        num_dates = MATCH_WINDOW_DAYS + self._days_ahead + 1
+        total_slots = total_leagues * num_dates
+
+        for league_idx, league in enumerate(self._search_leagues):
             league_events: list[Event] = []
             is_tsdb = self._service.get_provider_name(league) == "tsdb"
+            is_group_league = league in self._include_leagues
 
-            for offset in range(-MATCH_WINDOW_DAYS, 1):
+            # Range: from -MATCH_WINDOW_DAYS to +days_ahead (inclusive)
+            for offset in range(-MATCH_WINDOW_DAYS, self._days_ahead + 1):
                 fetch_date = target_date + timedelta(days=offset)
-                # Today: fetch fresh; Past: always use cache
-                cache_only = is_tsdb or offset < 0
+                shared_key = f"{league}:{fetch_date.isoformat()}"
+
+                # Check shared events cache first (from prior groups in same run)
+                if self._shared_events is not None and shared_key in self._shared_events:
+                    league_events.extend(self._shared_events[shared_key])
+                    shared_hits += 1
+                    continue
+
+                # Cache-only rules:
+                # - TSDB: always cache-only
+                # - Past days: always cache-only
+                # - Future days: only fetch from API for group's configured leagues
+                # - Today: fetch from API for group's leagues, cache for others
+                if is_tsdb or offset < 0:
+                    cache_only = True
+                elif offset > 0:
+                    # Future days: only fetch from API for group's leagues
+                    cache_only = not is_group_league
+                else:
+                    # Today: fetch from API for group's leagues, cache for others
+                    cache_only = not is_group_league
+
                 events = self._service.get_events(league, fetch_date, cache_only=cache_only)
+                service_calls += 1
                 league_events.extend(events)
+
+                # Store in shared cache for subsequent matchers
+                # IMPORTANT: Only cache non-empty results from API fetches.
+                # Empty cache_only results should NOT be stored, as a later group
+                # that needs this league will want to fetch from the API.
+                if self._shared_events is not None and events and not cache_only:
+                    self._shared_events[shared_key] = events
 
             if league_events:
                 self._prefetched_events[league] = league_events
                 total_events += len(league_events)
 
+            # Report progress periodically (every 20 leagues or at end)
+            if status_callback and (league_idx % 20 == 0 or league_idx == total_leagues - 1):
+                progress_pct = int((league_idx + 1) / total_leagues * 100)
+                status_callback(
+                    f"Prefetching events: {league_idx + 1}/{total_leagues} leagues "
+                    f"({total_events} events, {shared_hits} reused)"
+                )
+
         logger.debug(
             f"Prefetched {total_events} events from {len(self._prefetched_events)} leagues "
-            f"(window: -{MATCH_WINDOW_DAYS} to 0 days)"
+            f"(window: -{MATCH_WINDOW_DAYS} to +{self._days_ahead} days, "
+            f"shared_hits={shared_hits}, service_calls={service_calls})"
         )
 
     def _match_single(
@@ -329,9 +424,15 @@ class StreamMatcher:
         # Determine event type from configured leagues
         league_event_type = self._get_dominant_event_type()
 
-        classified = classify_stream(stream_name, league_event_type, self._custom_regex)
+        classified = classify_stream(
+            stream_name, league_event_type, self._custom_regex
+        )
 
-        # Step 2: Handle placeholders
+        # Step 2: Handle placeholders (streams that couldn't be classified)
+        # Note: Placeholder pattern detection and unsupported sports filtering
+        # is now handled by StreamFilter before streams reach the matcher.
+        # This handles streams that passed filtering but still can't be classified
+        # (e.g., no separator found, no custom regex match).
         if classified.category == StreamCategory.PLACEHOLDER:
             return MatchedStreamResult(
                 stream_name=stream_name,
@@ -339,7 +440,7 @@ class StreamMatcher:
                 matched=False,
                 included=False,
                 category=StreamCategory.PLACEHOLDER,
-                exclusion_reason="placeholder",
+                exclusion_reason="unclassifiable",
             )
 
         # Step 3: Route to appropriate matcher based on category

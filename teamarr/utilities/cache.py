@@ -222,15 +222,18 @@ class PersistentTTLCache:
 
     # Default flush interval (2 minutes)
     DEFAULT_FLUSH_INTERVAL = 120
+    # Default max size for memory cache (prevents runaway memory)
+    DEFAULT_MAX_SIZE = 50000
 
     def __init__(
         self,
         default_ttl_seconds: int = 3600,
         flush_interval_seconds: int = DEFAULT_FLUSH_INTERVAL,
+        max_size: int = DEFAULT_MAX_SIZE,
     ):
         self._memory_cache = TTLCache(
             default_ttl_seconds=default_ttl_seconds,
-            max_size=0,  # Unlimited - SQLite is the source of truth for size
+            max_size=max_size,
         )
         self._default_ttl = timedelta(seconds=default_ttl_seconds)
         self._flush_interval = flush_interval_seconds

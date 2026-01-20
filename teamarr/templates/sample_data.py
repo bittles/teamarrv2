@@ -253,6 +253,16 @@ SAMPLE_DATA: dict[str, dict[str, str]] = {
         "NCAAF": "College Football",
         "Soccer": "Premier League Soccer",
     },
+    # Exception keyword - channel-specific variable
+    "exception_keyword": {
+        "NBA": "4K",
+        "NFL": "4K",
+        "MLB": "4K",
+        "NHL": "4K",
+        "NCAAM": "4K",
+        "NCAAF": "4K",
+        "Soccer": "4K",
+    },
     # ==========================================================================
     # HOME_AWAY - Positional team variables
     # ==========================================================================
@@ -881,6 +891,42 @@ SAMPLE_DATA: dict[str, dict[str, str]] = {
         "NCAAM": "Today",
         "NCAAF": "Today",
         "Soccer": "Today",
+    },
+    "relative_day": {
+        "NBA": "tonight",
+        "NFL": "tomorrow",
+        "MLB": "wednesday",
+        "NHL": "tonight",
+        "NCAAM": "today",
+        "NCAAF": "Jan 25",
+        "Soccer": "saturday",
+    },
+    "relative_day.next": {
+        "NBA": "friday",
+        "NFL": "Jan 26",
+        "MLB": "thursday",
+        "NHL": "saturday",
+        "NCAAM": "tomorrow",
+        "NCAAF": "Feb 1",
+        "Soccer": "tuesday",
+    },
+    "relative_day_title": {
+        "NBA": "Tonight",
+        "NFL": "Tomorrow",
+        "MLB": "Wednesday",
+        "NHL": "Tonight",
+        "NCAAM": "Today",
+        "NCAAF": "Jan 25",
+        "Soccer": "Saturday",
+    },
+    "relative_day_title.next": {
+        "NBA": "Friday",
+        "NFL": "Jan 26",
+        "MLB": "Thursday",
+        "NHL": "Saturday",
+        "NCAAM": "Tomorrow",
+        "NCAAF": "Feb 1",
+        "Soccer": "Tuesday",
     },
     # ==========================================================================
     # VENUE - Stadium/arena information
@@ -3613,7 +3659,11 @@ def get_sample_value(var_name: str, sport: str) -> str:
 
 
 def get_all_sample_data(sport: str) -> dict[str, str]:
-    """Get all sample values for a given sport."""
+    """Get all sample values for a given sport.
+
+    Time-related variables are formatted according to user's display settings
+    (12h/24h format, show/hide timezone).
+    """
     result = {}
     for var_name, sport_data in SAMPLE_DATA.items():
         if sport in sport_data:
@@ -3621,4 +3671,92 @@ def get_all_sample_data(sport: str) -> dict[str, str]:
         elif sport_data:
             # Fall back to first available
             result[var_name] = next(iter(sport_data.values()))
+
+    # Post-process time-related variables to honor user settings
+    result = _format_time_samples(result)
     return result
+
+
+# Variables that contain time values needing format conversion
+_TIME_VARIABLES = {
+    "game_time",
+    "game_time.next",
+    "game_time.last",
+}
+
+
+def _format_time_samples(samples: dict[str, str]) -> dict[str, str]:
+    """Format time sample values according to user display settings.
+
+    Converts hardcoded time strings like "7:00 PM EST" to user's preferred format.
+    """
+    from teamarr.config import get_show_timezone, get_time_format, get_user_timezone_str
+
+    time_format = get_time_format()
+    show_tz = get_show_timezone()
+    tz_str = get_user_timezone_str()
+
+    # Get timezone abbreviation for display
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_str)
+        tz_abbrev = datetime.now(tz).strftime("%Z")
+    except Exception:
+        tz_abbrev = "EST"
+
+    for var_name in _TIME_VARIABLES:
+        if var_name not in samples:
+            continue
+
+        # Parse the existing time (format: "7:00 PM EST" or similar)
+        original = samples[var_name]
+        parsed = _parse_sample_time(original)
+        if parsed is None:
+            continue
+
+        hour, minute = parsed
+
+        # Format according to user settings
+        if time_format == "24h":
+            time_str = f"{hour:02d}:{minute:02d}"
+        else:
+            # 12-hour format
+            display_hour = hour % 12
+            if display_hour == 0:
+                display_hour = 12
+            am_pm = "AM" if hour < 12 else "PM"
+            time_str = f"{display_hour}:{minute:02d} {am_pm}"
+
+        # Add timezone if enabled
+        if show_tz:
+            time_str = f"{time_str} {tz_abbrev}"
+
+        samples[var_name] = time_str
+
+    return samples
+
+
+def _parse_sample_time(time_str: str) -> tuple[int, int] | None:
+    """Parse a sample time string like '7:00 PM EST' into (hour, minute) in 24h format."""
+    import re
+
+    # Match patterns like "7:00 PM", "19:00", "7:00 PM EST"
+    match = re.match(r"(\d{1,2}):(\d{2})\s*(AM|PM)?", time_str, re.IGNORECASE)
+    if not match:
+        return None
+
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    am_pm = match.group(3)
+
+    # Convert to 24h if AM/PM present
+    if am_pm:
+        am_pm = am_pm.upper()
+        if am_pm == "PM" and hour < 12:
+            hour += 12
+        elif am_pm == "AM" and hour == 12:
+            hour = 0
+
+    return (hour, minute)

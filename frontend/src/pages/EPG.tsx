@@ -140,6 +140,11 @@ export function EPG() {
   // Event matcher state
   const [matcherStream, setMatcherStream] = useState<CorrectableStream | null>(null)
   const [matcherLeague, setMatcherLeague] = useState("")
+  const [matcherTargetDate, setMatcherTargetDate] = useState(() => {
+    // Default to today in YYYY-MM-DD format
+    const today = new Date()
+    return today.toISOString().split("T")[0]
+  })
   const [matcherEvents, setMatcherEvents] = useState<EventSearchResult[]>([])
   const [matcherLoading, setMatcherLoading] = useState(false)
   const [matcherSubmitting, setMatcherSubmitting] = useState(false)
@@ -291,7 +296,9 @@ export function EPG() {
         correct_event_id: null,
         correct_league: null,
       })
-      toast.success("Stream marked as 'no event' - will be skipped")
+      toast.success("Stream marked as 'no event'", {
+        description: "Changes will apply on next EPG generation",
+      })
       setEventMatcherOpen(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to mark as no event")
@@ -304,7 +311,7 @@ export function EPG() {
     if (!matcherLeague) return
     setMatcherLoading(true)
     try {
-      const result = await searchEvents(matcherLeague, undefined, undefined, 50)
+      const result = await searchEvents(matcherLeague, undefined, matcherTargetDate || undefined, 50)
       setMatcherEvents(result.events)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to search events")
@@ -329,7 +336,9 @@ export function EPG() {
         correct_event_id: selectedEventId,
         correct_league: matcherLeague,
       })
-      toast.success("Stream matched to event successfully")
+      toast.success("Stream matched to event", {
+        description: "Changes will apply on next EPG generation",
+      })
       setEventMatcherOpen(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to apply correction")
@@ -1076,7 +1085,7 @@ export function EPG() {
               </div>
             )}
 
-            {/* League Selection */}
+            {/* League and Date Selection */}
             <div className="flex gap-2">
               {leaguesLoading ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
@@ -1101,6 +1110,13 @@ export function EPG() {
                       </optgroup>
                     ))}
                   </Select>
+                  <Input
+                    type="date"
+                    value={matcherTargetDate}
+                    onChange={(e) => setMatcherTargetDate(e.target.value)}
+                    className="w-40"
+                    title="Target date for event search"
+                  />
                   <Button
                     onClick={handleSearchEvents}
                     disabled={!matcherLeague || matcherLoading}

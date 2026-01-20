@@ -24,7 +24,8 @@ class EventEPGGroup:
     template_id: int | None = None
     channel_start_number: int | None = None
     channel_group_id: int | None = None
-    channel_profile_ids: list[int] = field(default_factory=list)
+    channel_group_mode: str = "static"  # "static", "sport", "league"
+    channel_profile_ids: list[int | str] = field(default_factory=list)  # IDs or "{sport}", "{league}"
     duplicate_event_handling: str = "consolidate"
     channel_assignment_mode: str = "auto"
     sort_order: int = 0
@@ -115,6 +116,7 @@ def _row_to_group(row) -> EventEPGGroup:
         template_id=row["template_id"],
         channel_start_number=row["channel_start_number"],
         channel_group_id=row["channel_group_id"],
+        channel_group_mode=row["channel_group_mode"] if "channel_group_mode" in row.keys() else "static",
         channel_profile_ids=channel_profile_ids,
         duplicate_event_handling=row["duplicate_event_handling"] or "consolidate",
         channel_assignment_mode=row["channel_assignment_mode"] or "auto",
@@ -275,7 +277,8 @@ def create_group(
     template_id: int | None = None,
     channel_start_number: int | None = None,
     channel_group_id: int | None = None,
-    channel_profile_ids: list[int] | None = None,
+    channel_group_mode: str = "static",
+    channel_profile_ids: list[int | str] | None = None,
     duplicate_event_handling: str = "consolidate",
     channel_assignment_mode: str = "auto",
     sort_order: int = 0,
@@ -343,7 +346,7 @@ def create_group(
     cursor = conn.execute(
         """INSERT INTO event_epg_groups (
             name, display_name, leagues, group_mode, template_id, channel_start_number,
-            channel_group_id, channel_profile_ids,
+            channel_group_id, channel_group_mode, channel_profile_ids,
             duplicate_event_handling, channel_assignment_mode, sort_order,
             total_stream_count, parent_group_id, m3u_group_id, m3u_group_name,
             m3u_account_id, m3u_account_name,
@@ -355,7 +358,7 @@ def create_group(
             skip_builtin_filter,
             include_teams, exclude_teams, team_filter_mode,
             channel_sort_order, overlap_handling, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             name,
             display_name,
@@ -364,6 +367,7 @@ def create_group(
             template_id,
             channel_start_number,
             channel_group_id,
+            channel_group_mode,
             json.dumps(channel_profile_ids) if channel_profile_ids else None,
             duplicate_event_handling,
             channel_assignment_mode,
@@ -413,7 +417,8 @@ def update_group(
     template_id: int | None = None,
     channel_start_number: int | None = None,
     channel_group_id: int | None = None,
-    channel_profile_ids: list[int] | None = None,
+    channel_group_mode: str | None = None,
+    channel_profile_ids: list[int | str] | None = None,
     duplicate_event_handling: str | None = None,
     channel_assignment_mode: str | None = None,
     sort_order: int | None = None,
@@ -514,6 +519,10 @@ def update_group(
         values.append(channel_group_id)
     elif clear_channel_group_id:
         updates.append("channel_group_id = NULL")
+
+    if channel_group_mode is not None:
+        updates.append("channel_group_mode = ?")
+        values.append(channel_group_mode)
 
     if channel_profile_ids is not None:
         updates.append("channel_profile_ids = ?")

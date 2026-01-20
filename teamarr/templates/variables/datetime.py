@@ -132,3 +132,58 @@ def extract_days_until(ctx: TemplateContext, game_ctx: GameContext | None) -> st
     return str(max(0, delta.days))
 
 
+@register_variable(
+    name="relative_day",
+    category=Category.DATETIME,
+    suffix_rules=SuffixRules.BASE_NEXT_ONLY,
+    description="Relative day: 'today', 'tonight', 'tomorrow', day of week (2-6 days), or date (7+ days)",
+)
+def extract_relative_day(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
+    """Return relative day for natural language EPG descriptions.
+
+    Logic:
+        - 0 days: 'today' (before 5pm) or 'tonight' (5pm+)
+        - 1 day: 'tomorrow'
+        - 2-6 days: day of week (e.g., 'wednesday')
+        - 7+ days: date (e.g., 'jan 25')
+    """
+    dt = _get_local_time(game_ctx)
+    if not dt:
+        return ""
+    now = now_user()
+    delta = (dt.date() - now.date()).days
+
+    if delta <= 0:
+        return "tonight" if dt.hour >= 17 else "today"
+    elif delta == 1:
+        return "tomorrow"
+    elif delta <= 6:
+        return dt.strftime("%A").lower()
+    else:
+        return dt.strftime("%b %-d")  # Keep month title case (Jan 25)
+
+
+@register_variable(
+    name="relative_day_title",
+    category=Category.DATETIME,
+    suffix_rules=SuffixRules.BASE_NEXT_ONLY,
+    description="Relative day (title case): 'Today', 'Tonight', 'Tomorrow', 'Wednesday', 'Jan 25'",
+)
+def extract_relative_day_title(ctx: TemplateContext, game_ctx: GameContext | None) -> str:
+    """Return relative day in title case for EPG descriptions."""
+    dt = _get_local_time(game_ctx)
+    if not dt:
+        return ""
+    now = now_user()
+    delta = (dt.date() - now.date()).days
+
+    if delta <= 0:
+        return "Tonight" if dt.hour >= 17 else "Today"
+    elif delta == 1:
+        return "Tomorrow"
+    elif delta <= 6:
+        return dt.strftime("%A")
+    else:
+        return dt.strftime("%b %-d")
+
+

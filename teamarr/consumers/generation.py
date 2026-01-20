@@ -267,6 +267,46 @@ def run_full_generation(
         result.groups_programmes = group_result.total_programmes
         result.programmes_total = result.teams_programmes + result.groups_programmes
 
+        # Step 3b: Global channel reassignment (if enabled)
+        # Applies when sorting_scope is "global" - interleaves channels by sport/league/time
+        from teamarr.database.settings import get_channel_numbering_settings
+        from teamarr.database.channel_numbers import reassign_channels_globally
+
+        with db_factory() as conn:
+            channel_numbering = get_channel_numbering_settings(conn)
+
+        if channel_numbering.sorting_scope == "global":
+            update_progress("groups", 94, "Reassigning channels globally by sport/league priority...")
+            with db_factory() as conn:
+                global_result = reassign_channels_globally(conn)
+                if global_result["channels_moved"] > 0:
+                    logger.info(
+                        "[GENERATION] Global reassignment: %d channels processed, %d moved",
+                        global_result["channels_processed"],
+                        global_result["channels_moved"],
+                    )
+
+                    # Sync moved channel numbers to Dispatcharr
+                    if dispatcharr_client:
+                        synced = 0
+                        for ch in global_result.get("drift_details", []):
+                            disp_id = ch.get("dispatcharr_channel_id")
+                            new_num = ch.get("new_number")
+                            if disp_id and new_num:
+                                try:
+                                    dispatcharr_client.channels.update_channel(
+                                        disp_id,
+                                        {"channel_number": new_num},
+                                    )
+                                    synced += 1
+                                except Exception as e:
+                                    logger.warning(
+                                        "[GENERATION] Failed to sync channel %s to Dispatcharr: %s",
+                                        ch.get("channel_name"), e
+                                    )
+                        if synced:
+                            logger.info("[GENERATION] Synced %d channel numbers to Dispatcharr", synced)
+
         # Step 4: Merge and save XMLTV (95-96%)
         update_progress("saving", 95, "Saving XMLTV...")
 

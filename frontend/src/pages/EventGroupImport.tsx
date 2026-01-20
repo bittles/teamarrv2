@@ -116,7 +116,7 @@ export function EventGroupImport() {
   const [bulkLeagues, setBulkLeagues] = useState<Set<string>>(new Set())
   const [bulkTemplateId, setBulkTemplateId] = useState<number | null>(null)
   const [bulkChannelGroupId, setBulkChannelGroupId] = useState<number | null>(null)
-  const [bulkChannelProfileIds, setBulkChannelProfileIds] = useState<number[]>([])
+  const [bulkChannelProfileIds, setBulkChannelProfileIds] = useState<(number | string)[]>([])
   const [bulkEnabled, setBulkEnabled] = useState(true)
   const [bulkImporting, setBulkImporting] = useState(false)
 

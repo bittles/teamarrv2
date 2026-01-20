@@ -118,8 +118,8 @@ CREATE TABLE IF NOT EXISTS teams (
     -- Status
     active BOOLEAN DEFAULT 1,
 
-    -- One entry per team per sport (multi-league consolidated)
-    UNIQUE(provider, provider_team_id, sport),
+    -- One entry per team per league (ESPN reuses IDs across leagues for different teams)
+    UNIQUE(provider, provider_team_id, sport, primary_league),
     FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE SET NULL
 );
 
@@ -254,8 +254,28 @@ CREATE TABLE IF NOT EXISTS settings (
     -- Custom exclusion patterns (JSON array of regex patterns) - stream must NOT match any
     stream_filter_exclude_patterns JSON DEFAULT '[]',
 
+    -- Channel Numbering Mode (for AUTO groups)
+    -- 'strict_block': Reserve by total_stream_count (current behavior, large gaps, minimal drift)
+    -- 'rational_block': Reserve by actual channel count rounded to 10 (smaller gaps, low drift)
+    -- 'strict_compact': No reservation, sequential numbers (no gaps, higher drift risk)
+    channel_numbering_mode TEXT DEFAULT 'strict_block'
+        CHECK(channel_numbering_mode IN ('strict_block', 'rational_block', 'strict_compact')),
+
+    -- Channel Sorting Scope (only applies to rational_block and strict_compact)
+    -- 'per_group': Sort channels within each group (current behavior)
+    -- 'global': Sort all AUTO channels across groups by sport/league/time
+    channel_sorting_scope TEXT DEFAULT 'per_group'
+        CHECK(channel_sorting_scope IN ('per_group', 'global')),
+
+    -- Sort order for per-group scope
+    -- 'sport_league_time': Sort by sport, then league, then event time
+    -- 'time': Sort by event time only
+    -- 'stream_order': Keep original stream order from M3U
+    channel_sort_by TEXT DEFAULT 'time'
+        CHECK(channel_sort_by IN ('sport_league_time', 'time', 'stream_order')),
+
     -- Schema Version
-    schema_version INTEGER DEFAULT 25
+    schema_version INTEGER DEFAULT 33
 );
 
 -- Insert default settings
@@ -292,8 +312,10 @@ CREATE TABLE IF NOT EXISTS event_epg_groups (
 
     -- Channel Settings
     channel_start_number INTEGER,            -- Starting channel number for this group
-    channel_group_id INTEGER,                -- Dispatcharr channel group to assign
-    channel_profile_ids TEXT,                -- JSON array of channel profile IDs
+    channel_group_id INTEGER,                -- Dispatcharr channel group to assign (when mode='static')
+    channel_group_mode TEXT DEFAULT 'static' -- How to assign channel group
+        CHECK(channel_group_mode IN ('static', 'sport', 'league')),
+    channel_profile_ids TEXT,                -- JSON array: profile IDs and/or "{sport}", "{league}"
 
     -- Duplicate Event Handling (uses global lifecycle settings)
     duplicate_event_handling TEXT DEFAULT 'consolidate'
@@ -330,7 +352,7 @@ CREATE TABLE IF NOT EXISTS event_epg_groups (
     custom_regex_date_enabled BOOLEAN DEFAULT 0,
     custom_regex_time TEXT,                  -- Custom pattern to extract time
     custom_regex_time_enabled BOOLEAN DEFAULT 0,
-    skip_builtin_filter BOOLEAN DEFAULT 0,   -- Skip built-in team name extraction
+    skip_builtin_filter BOOLEAN DEFAULT 0,   -- Skip built-in stream filtering (placeholder, unsupported sports, event patterns)
 
     -- Team Filtering (canonical team selection, inherited by children)
     include_teams JSON,                          -- Teams to include: [{"provider":"espn","team_id":"33","league":"nfl","name":"Ravens"}, ...]
@@ -469,6 +491,69 @@ CREATE TRIGGER IF NOT EXISTS update_managed_channels_timestamp
 AFTER UPDATE ON managed_channels
 BEGIN
     UPDATE managed_channels SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+
+-- =============================================================================
+-- SPORTS TABLE
+-- Single source of truth for sport display names
+-- Used by {sport} template variable for proper casing (e.g., 'MMA' not 'mma')
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS sports (
+    sport_code TEXT PRIMARY KEY,             -- Lowercase internal code: 'football', 'mma'
+    display_name TEXT NOT NULL               -- Display format: 'Football', 'MMA'
+);
+
+-- Seed sports with proper display names
+INSERT OR REPLACE INTO sports (sport_code, display_name) VALUES
+    ('football', 'Football'),
+    ('basketball', 'Basketball'),
+    ('hockey', 'Hockey'),
+    ('baseball', 'Baseball'),
+    ('softball', 'Softball'),
+    ('soccer', 'Soccer'),
+    ('mma', 'MMA'),
+    ('volleyball', 'Volleyball'),
+    ('lacrosse', 'Lacrosse'),
+    ('cricket', 'Cricket'),
+    ('rugby', 'Rugby'),
+    ('boxing', 'Boxing'),
+    ('tennis', 'Tennis'),
+    ('golf', 'Golf'),
+    ('wrestling', 'Wrestling'),
+    ('racing', 'Racing');
+
+
+-- =============================================================================
+-- CHANNEL_SORT_PRIORITIES TABLE
+-- User-defined sort order for sports/leagues when using global channel sorting
+-- Used by channel numbering to determine channel order across all AUTO groups
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS channel_sort_priorities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Sport/League identification
+    sport TEXT NOT NULL,                     -- Sport code (e.g., 'football', 'basketball')
+    league_code TEXT,                        -- NULL = sport-level priority only
+
+    -- Sort priority (lower = earlier in channel list)
+    sort_priority INTEGER NOT NULL,
+
+    -- Unique constraint: one entry per sport/league combination
+    UNIQUE(sport, league_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_sort_priorities_priority
+ON channel_sort_priorities(sort_priority);
+
+CREATE TRIGGER IF NOT EXISTS update_channel_sort_priorities_timestamp
+AFTER UPDATE ON channel_sort_priorities
+BEGIN
+    UPDATE channel_sort_priorities SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
 
@@ -659,8 +744,8 @@ INSERT OR REPLACE INTO leagues (league_code, provider, provider_league_id, provi
     ('sa20', 'tsdb', '5532', 'SA20', 'South Africa Twenty20', 'cricket', 'https://r2.thesportsdb.com/images/media/league/badge/aakvuk1734183412.png', NULL, 1, 'SA20', 'sa20', 'team_vs_team', NULL, 'cricbuzz', '10394/sa20-2025-26'),
 
     -- Rugby (TSDB)
-    ('nrl', 'tsdb', '4416', 'Australian National Rugby League', 'National Rugby League', 'rugby_league', 'https://r2.thesportsdb.com/images/media/league/badge/gsztcj1552071996.png', NULL, 1, 'NRL', 'nrl', 'team_vs_team', NULL, NULL, NULL),
-    ('super-rugby', 'tsdb', '4551', 'Super Rugby', 'Super Rugby Pacific', 'rugby_union', 'https://r2.thesportsdb.com/images/media/league/badge/alpxhe1675871443.png', NULL, 1, 'Super Rugby', 'super-rugby', 'team_vs_team', NULL, NULL, NULL),
+    ('nrl', 'tsdb', '4416', 'Australian National Rugby League', 'National Rugby League', 'rugby', 'https://r2.thesportsdb.com/images/media/league/badge/gsztcj1552071996.png', NULL, 1, 'NRL', 'nrl', 'team_vs_team', NULL, NULL, NULL),
+    ('super-rugby', 'tsdb', '4551', 'Super Rugby', 'Super Rugby Pacific', 'rugby', 'https://r2.thesportsdb.com/images/media/league/badge/alpxhe1675871443.png', NULL, 1, 'Super Rugby', 'super-rugby', 'team_vs_team', NULL, NULL, NULL),
 
     -- Boxing (TSDB) - Combat sport with event cards
     ('boxing', 'tsdb', '4445', 'Boxing', 'Boxing', 'boxing', NULL, NULL, 0, NULL, 'boxing', 'event_card', NULL, NULL, NULL);
@@ -991,31 +1076,32 @@ CREATE TABLE IF NOT EXISTS consolidation_exception_keywords (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    -- Keyword variants (comma-separated)
-    -- e.g., "Spanish, En Español, (ESP), Español"
-    keywords TEXT NOT NULL UNIQUE,
+    -- Label (primary identifier, used in channel names and {exception_keyword} template variable)
+    -- e.g., "Spanish", "Manningcast"
+    label TEXT NOT NULL UNIQUE,
+
+    -- Match terms (comma-separated phrases/words to match in stream names)
+    -- e.g., "Spanish, En Español, (ESP), Español" or "Peyton and Eli, Manningcast, Manning"
+    match_terms TEXT NOT NULL,
 
     -- Behavior when keyword matched
     behavior TEXT NOT NULL DEFAULT 'consolidate'
         CHECK(behavior IN ('consolidate', 'separate', 'ignore')),
-
-    -- Display name for UI
-    display_name TEXT,
 
     -- Status
     enabled BOOLEAN DEFAULT 1
 );
 
 -- Seed default language keywords
-INSERT OR IGNORE INTO consolidation_exception_keywords (keywords, display_name, behavior) VALUES
-    ('Spanish, En Español, (ESP), Español', 'Spanish', 'consolidate'),
-    ('French, En Français, (FRA), Français', 'French', 'consolidate'),
-    ('German, (GER), Deutsch', 'German', 'consolidate'),
-    ('Portuguese, (POR), Português', 'Portuguese', 'consolidate'),
-    ('Italian, (ITA), Italiano', 'Italian', 'consolidate'),
-    ('Japanese, (JPN), 日本語', 'Japanese', 'consolidate'),
-    ('Korean, (KOR), 한국어', 'Korean', 'consolidate'),
-    ('Chinese, (CHN), (CHI), 中文', 'Chinese', 'consolidate');
+INSERT OR IGNORE INTO consolidation_exception_keywords (label, match_terms, behavior) VALUES
+    ('Spanish', 'Spanish, En Español, (ESP), Español', 'consolidate'),
+    ('French', 'French, En Français, (FRA), Français', 'consolidate'),
+    ('German', 'German, (GER), Deutsch', 'consolidate'),
+    ('Portuguese', 'Portuguese, (POR), Português', 'consolidate'),
+    ('Italian', 'Italian, (ITA), Italiano', 'consolidate'),
+    ('Japanese', 'Japanese, (JPN), 日本語', 'consolidate'),
+    ('Korean', 'Korean, (KOR), 한국어', 'consolidate'),
+    ('Chinese', 'Chinese, (CHN), (CHI), 中文', 'consolidate');
 
 CREATE INDEX IF NOT EXISTS idx_exception_keywords_enabled ON consolidation_exception_keywords(enabled);
 CREATE INDEX IF NOT EXISTS idx_exception_keywords_behavior ON consolidation_exception_keywords(behavior);

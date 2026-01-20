@@ -6,6 +6,36 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Sport emoji mapping for UI display.
+ */
+export const SPORT_EMOJIS: Record<string, string> = {
+  football: "🏈",
+  basketball: "🏀",
+  baseball: "⚾",
+  hockey: "🏒",
+  soccer: "⚽",
+  mma: "🥊",
+  boxing: "🥊",
+  golf: "⛳",
+  tennis: "🎾",
+  lacrosse: "🥍",
+  cricket: "🏏",
+  rugby: "🏉",
+  volleyball: "🏐",
+  softball: "🥎",
+  racing: "🏎️",
+  wrestling: "🤼",
+  default: "🏆",
+}
+
+/**
+ * Get emoji for a sport.
+ */
+export function getSportEmoji(sport: string): string {
+  return SPORT_EMOJIS[sport.toLowerCase()] ?? SPORT_EMOJIS.default
+}
+
+/**
  * Sport display names - handles special cases and formatting.
  * Used for consistent sport name formatting across the UI.
  */
@@ -20,8 +50,7 @@ const SPORT_DISPLAY_NAMES: Record<string, string> = {
   boxing: "Boxing",
   lacrosse: "Lacrosse",
   cricket: "Cricket",
-  rugby_league: "Rugby League",
-  rugby_union: "Rugby Union",
+  rugby: "Rugby",
   volleyball: "Volleyball",
 }
 

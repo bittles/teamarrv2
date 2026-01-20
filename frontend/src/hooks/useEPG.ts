@@ -42,6 +42,7 @@ export function useGenerateTeamEpg() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["stats"] })
       queryClient.invalidateQueries({ queryKey: ["runs"] })
+      queryClient.invalidateQueries({ queryKey: ["managedChannels"] })
     },
   })
 }

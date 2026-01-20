@@ -25,6 +25,8 @@ import {
   createExceptionKeyword,
   updateExceptionKeyword,
   deleteExceptionKeyword,
+  getChannelNumberingSettings,
+  updateChannelNumberingSettings,
 } from "@/api/settings"
 import type {
   DispatcharrSettings,
@@ -35,6 +37,7 @@ import type {
   ReconciliationSettings,
   DisplaySettings,
   TeamFilterSettingsUpdate,
+  ChannelNumberingSettingsUpdate,
 } from "@/api/settings"
 
 export function useSettings() {
@@ -234,7 +237,7 @@ export function useCreateExceptionKeyword() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (data: { keywords: string; behavior: string; display_name?: string; enabled?: boolean }) =>
+    mutationFn: (data: { label: string; match_terms: string; behavior: string; enabled?: boolean }) =>
       createExceptionKeyword(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keywords"] })
@@ -246,7 +249,7 @@ export function useUpdateExceptionKeyword() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<{ keywords: string; behavior: string; display_name: string | null; enabled: boolean }> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<{ label: string; match_terms: string; behavior: string; enabled: boolean }> }) =>
       updateExceptionKeyword(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keywords"] })
@@ -264,3 +267,23 @@ export function useDeleteExceptionKeyword() {
     },
   })
 }
+
+export function useChannelNumberingSettings() {
+  return useQuery({
+    queryKey: ["settings", "channel-numbering"],
+    queryFn: getChannelNumberingSettings,
+  })
+}
+
+export function useUpdateChannelNumberingSettings() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: ChannelNumberingSettingsUpdate) =>
+      updateChannelNumberingSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] })
+    },
+  })
+}
+

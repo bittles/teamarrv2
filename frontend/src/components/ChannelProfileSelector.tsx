@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Plus, X, Loader2, Check } from "lucide-react"
+import { Plus, X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -11,6 +11,12 @@ interface ChannelProfile {
   id: number
   name: string
 }
+
+// Wildcard options for dynamic profile assignment
+const WILDCARD_OPTIONS = [
+  { value: "{sport}", label: "{sport}", description: "Add channels to a profile by sport name (e.g., Basketball). Profile created if it doesn't exist." },
+  { value: "{league}", label: "{league}", description: "Add channels to a profile by league name (e.g., NBA, NFL). Profile created if it doesn't exist." },
+] as const
 
 async function fetchChannelProfiles(): Promise<ChannelProfile[]> {
   const response = await fetch("/api/v1/dispatcharr/channel-profiles")
@@ -31,29 +37,33 @@ async function createChannelProfile(name: string): Promise<ChannelProfile | null
 }
 
 interface ChannelProfileSelectorProps {
-  /** Currently selected profile IDs */
-  selectedIds: number[]
+  /** Currently selected profile IDs and/or wildcards */
+  selectedIds: (number | string)[]
   /** Callback when selection changes */
-  onChange: (ids: number[]) => void
+  onChange: (ids: (number | string)[]) => void
   /** Whether Dispatcharr is connected */
   disabled?: boolean
   /** Optional class name */
   className?: string
+  /** Whether to show wildcard options (default: true) */
+  showWildcards?: boolean
 }
 
 /**
- * Channel profile multi-select with inline creation.
+ * Channel profile multi-select with inline creation and wildcard support.
  *
  * Behavior:
  * - All profiles checked = all profiles
  * - No profiles checked = no profiles
  * - Some profiles checked = those specific profiles
+ * - Wildcards can be combined with static profile selections
  */
 export function ChannelProfileSelector({
   selectedIds,
   onChange,
   disabled = false,
   className,
+  showWildcards = true,
 }: ChannelProfileSelectorProps) {
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
@@ -66,8 +76,12 @@ export function ChannelProfileSelector({
     retry: false,
   })
 
-  const selectedSet = new Set(selectedIds)
-  const allSelected = profiles.length > 0 && profiles.every(p => selectedSet.has(p.id))
+  // Separate numeric IDs from wildcards
+  const numericIds = selectedIds.filter((x): x is number => typeof x === "number")
+  const wildcardIds = selectedIds.filter((x): x is string => typeof x === "string")
+
+  const selectedSet = new Set(numericIds)
+  const allProfilesSelected = profiles.length > 0 && profiles.every(p => selectedSet.has(p.id))
   const noneSelected = selectedIds.length === 0
 
   const toggleProfile = (id: number) => {
@@ -78,8 +92,17 @@ export function ChannelProfileSelector({
     }
   }
 
-  const selectAll = () => {
-    onChange(profiles.map(p => p.id))
+  const toggleWildcard = (wildcard: string) => {
+    if (wildcardIds.includes(wildcard)) {
+      onChange(selectedIds.filter(x => x !== wildcard))
+    } else {
+      onChange([...selectedIds, wildcard])
+    }
+  }
+
+  const selectAllProfiles = () => {
+    // Keep existing wildcards, add all profile IDs
+    onChange([...wildcardIds, ...profiles.map(p => p.id)])
   }
 
   const clearAll = () => {
@@ -107,6 +130,25 @@ export function ChannelProfileSelector({
     setCreating(false)
   }
 
+  // Count display
+  const getCountDisplay = () => {
+    const parts: string[] = []
+    if (numericIds.length > 0) {
+      if (allProfilesSelected) {
+        parts.push(`All ${profiles.length} profiles`)
+      } else {
+        parts.push(`${numericIds.length} profile${numericIds.length !== 1 ? "s" : ""}`)
+      }
+    }
+    if (wildcardIds.length > 0) {
+      const wildcardLabels = wildcardIds
+        .map(w => WILDCARD_OPTIONS.find(o => o.value === w)?.label || w)
+        .join(", ")
+      parts.push(wildcardLabels)
+    }
+    return parts.length > 0 ? parts.join(" + ") : "No profiles selected"
+  }
+
   if (isLoading) {
     return (
       <div className={cn("flex items-center justify-center py-4", className)}>
@@ -120,20 +162,16 @@ export function ChannelProfileSelector({
       {/* Header with actions */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {noneSelected
-            ? "No profiles selected"
-            : allSelected
-              ? `All ${profiles.length} profiles`
-              : `${selectedIds.length} of ${profiles.length} profiles`}
+          {getCountDisplay()}
         </span>
         <div className="flex items-center gap-1">
-          {!allSelected && profiles.length > 0 && (
+          {!allProfilesSelected && profiles.length > 0 && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="h-7 px-2 text-xs"
-              onClick={selectAll}
+              onClick={selectAllProfiles}
               disabled={disabled}
             >
               Select All
@@ -203,8 +241,13 @@ export function ChannelProfileSelector({
         </div>
       )}
 
-      {/* Profile list */}
+      {/* Existing Profiles list */}
       <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
+        {profiles.length > 0 && (
+          <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide bg-muted/30">
+            Existing Profiles
+          </div>
+        )}
         {profiles.length === 0 ? (
           <div className="p-3 text-sm text-muted-foreground text-center">
             {disabled ? "Dispatcharr not connected" : "No profiles found"}
@@ -227,56 +270,94 @@ export function ChannelProfileSelector({
                   disabled={disabled}
                 />
                 <span className="text-sm flex-1">{profile.name}</span>
-                {isSelected && <Check className="h-4 w-4 text-primary" />}
               </label>
             )
           })
         )}
       </div>
+
+      {/* Dynamic Profiles (wildcards) */}
+      {showWildcards && (
+        <div className="border rounded-md divide-y bg-muted/30">
+          <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Dynamic Profiles
+          </div>
+          {WILDCARD_OPTIONS.map((option) => {
+            const isSelected = wildcardIds.includes(option.value)
+            return (
+              <label
+                key={option.value}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-accent",
+                  isSelected && "bg-primary/5",
+                  disabled && "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => !disabled && toggleWildcard(option.value)}
+                  disabled={disabled}
+                />
+                <div className="flex-1">
+                  <code className="text-sm font-medium bg-muted px-1 rounded">{option.label}</code>
+                  <p className="text-xs text-muted-foreground mt-0.5">{option.description}</p>
+                </div>
+              </label>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
 /**
  * Convert selected IDs to API format.
- * - All profiles selected → [0] (sentinel for "all", auto-includes new profiles)
- * - No profiles selected → [] (no profiles)
- * - Some profiles selected → those IDs
+ * - All profiles selected (no wildcards) → null (backend will use all)
+ * - No selections at all → [] (no profiles)
+ * - Any specific selections → those IDs/wildcards
  */
 export function profileIdsToApi(
-  selectedIds: number[],
+  selectedIds: (number | string)[],
   allProfileIds: number[]
-): number[] | null {
+): (number | string)[] | null {
   if (selectedIds.length === 0) {
     return [] // No profiles
   }
-  // Check if all profiles are selected
-  const selectedSet = new Set(selectedIds)
+
+  // Separate numeric IDs from wildcards
+  const numericIds = selectedIds.filter((x): x is number => typeof x === "number")
+  const wildcardIds = selectedIds.filter((x): x is string => typeof x === "string")
+
+  // Check if all profiles are selected AND no wildcards
+  const selectedSet = new Set(numericIds)
   const allSelected = allProfileIds.length > 0 &&
     allProfileIds.every(id => selectedSet.has(id))
 
-  if (allSelected) {
-    return null // null = all profiles (backend sends [0] to Dispatcharr)
+  // If all profiles selected with no wildcards, return null (meaning all)
+  if (allSelected && wildcardIds.length === 0) {
+    return null
   }
+
   return selectedIds
 }
 
 /**
  * Convert API format to selected IDs for display.
- * - null or [0] → select all profiles
+ * - null → select all profiles (no wildcards)
  * - [] → select none
- * - [1,2,...] → select those
+ * - [...] → those specific IDs/wildcards
  */
 export function apiToProfileIds(
-  apiValue: number[] | null | undefined,
+  apiValue: (number | string)[] | null | undefined,
   allProfileIds: number[]
-): number[] {
+): (number | string)[] {
   if (apiValue === null || apiValue === undefined) {
-    // null = all profiles
+    // null = all profiles (no wildcards)
     return [...allProfileIds]
   }
   if (apiValue.length === 1 && apiValue[0] === 0) {
-    // [0] sentinel = all profiles
+    // [0] sentinel = all profiles (legacy format)
     return [...allProfileIds]
   }
   return apiValue

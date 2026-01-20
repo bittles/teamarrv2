@@ -417,6 +417,21 @@ SPORT_HINT_PATTERNS: list[tuple[str, str]] = [
     (r"\bt20\b", "Cricket"),
     # Volleyball
     (r"\bvolleyball\b", "Volleyball"),
+    # Swimming & Diving (not currently supported)
+    (r"\bswimming\b", "Swimming"),
+    (r"\bswim\b", "Swimming"),
+    (r"\bdiving\b", "Diving"),
+    (r"\bdive\b", "Diving"),
+    # Gymnastics (not currently supported)
+    (r"\bgymnastics\b", "Gymnastics"),
+    # Wrestling (not currently supported)
+    (r"\bwrestling\b", "Wrestling"),
+    # Track & Field (not currently supported)
+    (r"\btrack\s*(?:&|and)?\s*field\b", "Track and Field"),
+    # Tennis (not currently supported)
+    (r"\btennis\b", "Tennis"),
+    # Golf (not currently supported)
+    (r"\bgolf\b", "Golf"),
 ]
 
 

@@ -1,0 +1,91 @@
+name: "League/Sport Request"
+description: "Request support for a new league or sport"
+title: "[League Request]: "
+labels: ["new-league"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Request a new league or sport to be added to Teamarr.**
+
+        Please provide as much detail as possible to help us evaluate and implement support.
+
+  - type: input
+    id: sport
+    attributes:
+      label: Sport
+      description: What sport is this?
+      placeholder: "e.g., Basketball, Hockey, Soccer, Cricket"
+    validations:
+      required: true
+
+  - type: input
+    id: league
+    attributes:
+      label: League/Competition Name
+      description: Full name of the league or competition
+      placeholder: "e.g., Australian Football League, Korean Baseball Organization"
+    validations:
+      required: true
+
+  - type: input
+    id: abbreviation
+    attributes:
+      label: Common Abbreviation
+      description: How is this league commonly referred to?
+      placeholder: "e.g., AFL, KBO, EPL"
+    validations:
+      required: true
+
+  - type: input
+    id: country
+    attributes:
+      label: Country/Region
+      placeholder: "e.g., Australia, South Korea, Europe-wide"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: level
+    attributes:
+      label: Competition Level
+      options:
+        - Professional (top tier)
+        - Professional (lower tier)
+        - Semi-professional
+        - College/University
+        - Amateur/Youth
+        - International
+    validations:
+      required: true
+
+  - type: textarea
+    id: data_sources
+    attributes:
+      label: Data Sources
+      description: Links to where schedule/score data can be found (ESPN, official site, etc.)
+      placeholder: |
+        - ESPN: https://www.espn.com/...
+        - Official site: https://...
+    validations:
+      required: true
+
+  - type: textarea
+    id: teams
+    attributes:
+      label: Teams/Participants
+      description: How many teams? Any notable ones? (Optional but helpful)
+      placeholder: "12 teams including Melbourne, Sydney, Brisbane..."
+
+  - type: textarea
+    id: season
+    attributes:
+      label: Season Information
+      description: When does the season run? (Optional but helpful)
+      placeholder: "March to September, with finals in October"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other information that might help (streaming availability, etc.)

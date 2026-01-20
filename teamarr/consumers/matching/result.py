@@ -60,6 +60,9 @@ class FilteredReason(Enum):
     # Stream marked as stale in Dispatcharr (no longer in M3U source)
     STALE = "stale"
 
+    # Stream's detected sport is not supported (swimming, diving, gymnastics, etc.)
+    SPORT_NOT_SUPPORTED = "sport_not_supported"
+
 
 # =============================================================================
 # FAILED REASONS - Matching attempted but couldn't complete
@@ -380,6 +383,7 @@ FILTERED_DISPLAY: dict[FilteredReason, str] = {
     FilteredReason.EXCLUDE_REGEX: "Matched exclude regex",
     FilteredReason.LEAGUE_NOT_INCLUDED: "League not in group",
     FilteredReason.STALE: "Stale stream",
+    FilteredReason.SPORT_NOT_SUPPORTED: "Sport not supported",
 }
 
 FAILED_DISPLAY: dict[FailedReason, str] = {
